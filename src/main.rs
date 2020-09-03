@@ -1,6 +1,7 @@
 use std::io::{stdout, Read, Write};
 use std::sync::{Arc, RwLock};
 use std::net::TcpStream;
+use anyhow::Result;
 
 struct GeminiCertificateVerifier {
     db: RwLock<sled::Tree>
@@ -40,19 +41,25 @@ impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
     }
 }
 
-fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>) {
-    let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname).unwrap();
+fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
+    -> Result<Vec<u8>>
+{
+    let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
     let mut sess = rustls::ClientSession::new(&config, dns_name);
 
-    let mut sock = TcpStream::connect("gemini.circumlunar.space:1965")
-        .expect("Couldn't connect to the server...");
+    let mut sock = TcpStream::connect(format!("{}:1965", hostname))?;
     let mut tls = rustls::Stream::new(&mut sess, &mut sock);
-    tls.write_all(format!("gemini://{}/{}/\r\n", hostname, page).as_bytes())
-        .expect("Could not write initial message");
+    tls.write_all(format!("gemini://{}/{}/\r\n", hostname, page).as_bytes())?;
 
     let mut plaintext = Vec::new();
-    println!("{:?}", tls.read_to_end(&mut plaintext));
-    stdout().write_all(&plaintext).unwrap();
+    let rc = tls.read_to_end(&mut plaintext);
+    if rc.is_err() {
+        let err = rc.unwrap_err();
+        if err.kind() != std::io::ErrorKind::ConnectionAborted {
+            return Err(err.into());
+        }
+    }
+    Ok(plaintext)
 }
 
 fn main() {
@@ -68,5 +75,5 @@ fn main() {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    talk("gemini.circumlunar.space", "", config);
+    stdout().write_all(&talk("gemini.circumlunar.space", "", config).unwrap()).unwrap();
 }
