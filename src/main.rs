@@ -68,8 +68,7 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
         }
     }
 
-    //let txt = std::str::from_utf8(&plaintext)?;
-    //println!("Got header: {:?}", parse_header(txt));
+    println!("Got header: {:?}", parse_header(&plaintext));
 
     Ok(plaintext)
 }
