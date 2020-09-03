@@ -16,7 +16,7 @@ impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
     {
         use rustls::{TLSError, ServerCertVerified};
 
-        if presented_certs.len() < 1 {
+        if presented_certs.is_empty() {
             return Err(TLSError::NoCertificatesPresented)
         }
 
@@ -32,13 +32,27 @@ impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
                 Err(TLSError::WebPKIError(webpki::Error::CertNotValidForName))
             }
         } else {
-            println!("Writing new cert to db");
             self.db.write().unwrap()
                 .insert(d, presented_certs[0].as_ref())
                 .map_err(|e| TLSError::General(e.to_string()))?;
             Ok(ServerCertVerified::assertion())
         }
     }
+}
+
+fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>) {
+    let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname).unwrap();
+    let mut sess = rustls::ClientSession::new(&config, dns_name);
+
+    let mut sock = TcpStream::connect("gemini.circumlunar.space:1965")
+        .expect("Couldn't connect to the server...");
+    let mut tls = rustls::Stream::new(&mut sess, &mut sock);
+    tls.write_all(format!("gemini://{}/{}/\r\n", hostname, page).as_bytes())
+        .expect("Could not write initial message");
+
+    let mut plaintext = Vec::new();
+    println!("{:?}", tls.read_to_end(&mut plaintext));
+    stdout().write_all(&plaintext).unwrap();
 }
 
 fn main() {
@@ -52,16 +66,7 @@ fn main() {
     let mut config = rustls::ClientConfig::new();
     let verifier = GeminiCertificateVerifier { db: RwLock::new(certs) };
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
+    let config = Arc::new(config);
 
-    let dns_name = webpki::DNSNameRef::try_from_ascii_str("gemini.circumlunar.space").unwrap();
-    let mut sess = rustls::ClientSession::new(&Arc::new(config), dns_name);
-
-    let mut sock = TcpStream::connect("gemini.circumlunar.space:1965")
-        .expect("Couldn't connect to the server...");
-    let mut tls = rustls::Stream::new(&mut sess, &mut sock);
-    tls.write("gemini://gemini.circumlunar.space/docs/\r\n".as_bytes()).unwrap();
-
-    let mut plaintext = Vec::new();
-    println!("{:?}", tls.read_to_end(&mut plaintext));
-    stdout().write_all(&plaintext).unwrap();
+    talk("gemini.circumlunar.space", "", config);
 }
