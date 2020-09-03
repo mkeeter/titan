@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::io::{stdout, Read, Write};
 use std::sync::{Arc, RwLock};
 use std::net::TcpStream;
@@ -41,6 +42,60 @@ impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
     }
 }
 
+enum ResponseStatus {
+    Input,
+    SensitiveInput,
+    Success,
+    RedirectTemporary,
+    RedirectPermanent,
+    TemporaryFailure,
+    ServerUnavailable,
+    CGIError,
+    ProxyError,
+    SlowDown,
+    PermanentFailure,
+    NotFound,
+    Gone,
+    ProxyRequestRefused,
+    BadRequest,
+    ClientCertificateRequired,
+    CertificateNotAuthorized,
+    CertificateNotValid,
+}
+
+impl TryFrom<u32> for ResponseStatus {
+    type Error = ();
+    fn try_from(v: u32) -> Result<Self, Self::Error> {
+        use ResponseStatus::*;
+        Ok(match v {
+            10 => Input,
+            11 => SensitiveInput,
+            20 => Success,
+            30 => RedirectTemporary,
+            31 => RedirectPermanent,
+            40 => TemporaryFailure,
+            41 => ServerUnavailable,
+            42 => CGIError,
+            43 => ProxyError,
+            44 => SlowDown,
+            50 => PermanentFailure,
+            51 => NotFound,
+            52 => Gone,
+            53 => ProxyRequestRefused,
+            59 => BadRequest,
+            60 => ClientCertificateRequired,
+            61 => CertificateNotAuthorized,
+            62 => CertificateNotValid,
+            _ => return Err(()),
+        })
+    }
+}
+
+struct ResponseHeader {
+    status: ResponseStatus,
+    meta: String,
+}
+
 fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
     -> Result<Vec<u8>>
 {
@@ -53,6 +108,9 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
 
     let mut plaintext = Vec::new();
     let rc = tls.read_to_end(&mut plaintext);
+
+    // The server should cleanly close the connection at the end of the
+    // message, which returns an error from read_to_end but is actually okay.
     if rc.is_err() {
         let err = rc.unwrap_err();
         if err.kind() != std::io::ErrorKind::ConnectionAborted {
@@ -75,5 +133,5 @@ fn main() {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    stdout().write_all(&talk("gemini.circumlunar.space", "", config).unwrap()).unwrap();
+    stdout().write_all(&talk("gemini.circumlunar.space", "capcom", config).unwrap()).unwrap();
 }
