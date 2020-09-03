@@ -104,7 +104,7 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
 
     let mut sock = TcpStream::connect(format!("{}:1965", hostname))?;
     let mut tls = rustls::Stream::new(&mut sess, &mut sock);
-    tls.write_all(format!("gemini://{}/{}/\r\n", hostname, page).as_bytes())?;
+    tls.write_all(format!("gemini://{}/{}\r\n", hostname, page).as_bytes())?;
 
     let mut plaintext = Vec::new();
     let rc = tls.read_to_end(&mut plaintext);
@@ -120,18 +120,18 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
     Ok(plaintext)
 }
 
-fn main() {
+fn main() -> Result<()> {
     let dirs = directories::ProjectDirs::from("com", "mkeeter", "titan")
-        .expect("Could not get project dirs");
-    let db = sled::open(dirs.data_dir())
-        .expect("Could not open db");
-    let certs = db.open_tree("certs")
-        .expect("Could not open certs tree");
+        .ok_or(std::io::Error::new(std::io::ErrorKind::Other,
+                                   "Could not get ProjectDirs"))?;
+    let db = sled::open(dirs.data_dir())?;
+    let certs = db.open_tree("certs")?;
 
     let mut config = rustls::ClientConfig::new();
     let verifier = GeminiCertificateVerifier { db: RwLock::new(certs) };
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    stdout().write_all(&talk("gemini.circumlunar.space", "capcom", config).unwrap()).unwrap();
+    stdout().write_all(&talk("avalos.me", "gemlog/2020-08-22-gemini-makes-me-feel-part-of-something.gmi", config).unwrap()).unwrap();
+    Ok(())
 }
