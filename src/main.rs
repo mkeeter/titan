@@ -1,12 +1,13 @@
-use std::io::{stdout, Read, Write};
+use std::io::{Read, Write};
 use std::sync::{Arc, RwLock};
 use std::net::TcpStream;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 mod protocol;
 mod parser;
 
-use crate::parser::parse_header;
+use crate::parser::{parse_header, parse_text_gemini};
+use crate::protocol::{ResponseHeader, ResponseStatus, Line};
 
 struct GeminiCertificateVerifier {
     db: RwLock<sled::Tree>
@@ -47,7 +48,7 @@ impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
 }
 
 fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
-    -> Result<Vec<u8>>
+    -> Result<(ResponseHeader, Option<Vec<Line>>)>
 {
     let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
     let mut sess = rustls::ClientSession::new(&config, dns_name);
@@ -68,9 +69,18 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
         }
     }
 
-    println!("Got header: {:?}", parse_header(&plaintext));
-
-    Ok(plaintext)
+    let (body, header) = parse_header(&plaintext).map_err(
+        |e| anyhow!("Header parsing failed: {}", e))?;
+    if header.status != ResponseStatus::Success {
+        return Ok((header, None));
+    }
+    if header.meta.starts_with("text/gemini") {
+        let body = std::str::from_utf8(body)?;
+        let (_, text) = parse_text_gemini(body).map_err(
+            |e| anyhow!("text/gemini parsing failed: {}", e))?;
+        return Ok((header, Some(text)));
+    }
+    Err(anyhow!("Unknown meta {}", header.meta))
 }
 
 fn main() -> Result<()> {

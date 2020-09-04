@@ -120,7 +120,7 @@ pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
 }
 
 #[test]
-pub fn test_text_gemini() {
+pub fn test_parse_text_gemini() {
     let r = parse_text_gemini("# h1
 > quote
 ## h2").unwrap();

@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 use anyhow::{Error, anyhow};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ResponseStatus {
     Input,
     SensitiveInput,
