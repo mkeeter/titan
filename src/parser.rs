@@ -8,6 +8,7 @@ use nom::{
     bytes::complete::{tag, take_while_m_n, take_while},
     character::{is_digit},
     combinator::{map_res, rest},
+    sequence::terminated,
 };
 
 use crate::protocol::{ResponseStatus, ResponseHeader, Line};
@@ -102,6 +103,32 @@ pub fn parse_line(input: &str) -> IResult<&str, Line> {
     alt((parse_line_h3, parse_line_h2, parse_line_h1, parse_line_list,
          parse_line_quote, parse_line_link, parse_line_pre, parse_line_text))
         (input)
+}
+
+pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
+    let mut out = Vec::new();
+    while !input.is_empty() {
+        let (input_, line) = terminated(
+                take_while(|c| c != '\r' && c != '\n'),
+                alt((tag("\r\n"), tag("\n"), tag(""))))
+            (input)?;
+        out.push(parse_line(line)?.1);
+        input = input_;
+    }
+
+    Ok((input, out))
+}
+
+#[test]
+pub fn test_text_gemini() {
+    let r = parse_text_gemini("# h1
+> quote
+## h2").unwrap();
+    assert_eq!(r.1, vec![
+        Line::H1("h1".to_string()),
+        Line::Quote("quote".to_string()),
+        Line::H2("h2".to_string())
+    ]);
 }
 
 #[test]
