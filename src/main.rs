@@ -1,51 +1,15 @@
 use std::io::{Read, Write};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use std::net::TcpStream;
 use anyhow::{anyhow, Result};
 
 mod protocol;
 mod parser;
+mod tofu;
 
-use crate::parser::{parse_header, parse_text_gemini};
+use crate::parser::{parse_response_header, parse_text_gemini};
 use crate::protocol::{ResponseHeader, ResponseStatus, Line};
-
-struct GeminiCertificateVerifier {
-    db: RwLock<sled::Tree>
-}
-
-impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
-    fn verify_server_cert(&self,
-                          _roots: &rustls::RootCertStore,
-                          presented_certs: &[rustls::Certificate],
-                          dns_name: webpki::DNSNameRef<'_>,
-                          _ocsp_response: &[u8])
-        -> Result<rustls::ServerCertVerified, rustls::TLSError>
-    {
-        use rustls::{TLSError, ServerCertVerified};
-
-        if presented_certs.is_empty() {
-            return Err(TLSError::NoCertificatesPresented)
-        }
-
-        let dns_name = dns_name.to_owned();
-        let d : &str = AsRef::<str>::as_ref(&dns_name);
-        let r = self.db.read().unwrap().get(&d)
-            .map_err(|e| TLSError::General(e.to_string()))?;
-
-        if let Some(c) = r {
-            if c == presented_certs[0].as_ref() {
-                Ok(ServerCertVerified::assertion())
-            } else {
-                Err(TLSError::WebPKIError(webpki::Error::CertNotValidForName))
-            }
-        } else {
-            self.db.write().unwrap()
-                .insert(d, presented_certs[0].as_ref())
-                .map_err(|e| TLSError::General(e.to_string()))?;
-            Ok(ServerCertVerified::assertion())
-        }
-    }
-}
+use crate::tofu::GeminiCertificateVerifier;
 
 fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
     -> Result<(ResponseHeader, Option<Vec<Line>>)>
@@ -62,14 +26,13 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
 
     // The server should cleanly close the connection at the end of the
     // message, which returns an error from read_to_end but is actually okay.
-    if rc.is_err() {
-        let err = rc.unwrap_err();
+    if let Err(err) = rc {
         if err.kind() != std::io::ErrorKind::ConnectionAborted {
             return Err(err.into());
         }
     }
 
-    let (body, header) = parse_header(&plaintext).map_err(
+    let (body, header) = parse_response_header(&plaintext).map_err(
         |e| anyhow!("Header parsing failed: {}", e))?;
     if header.status != ResponseStatus::Success {
         return Ok((header, None));
@@ -85,16 +48,15 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
 
 fn main() -> Result<()> {
     let dirs = directories::ProjectDirs::from("com", "mkeeter", "titan")
-        .ok_or(std::io::Error::new(std::io::ErrorKind::Other,
-                                   "Could not get ProjectDirs"))?;
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other,
+                                           "Could not get ProjectDirs"))?;
     let db = sled::open(dirs.data_dir())?;
-    let certs = db.open_tree("certs")?;
 
     let mut config = rustls::ClientConfig::new();
-    let verifier = GeminiCertificateVerifier { db: RwLock::new(certs) };
+    let verifier = GeminiCertificateVerifier::new(&db)?;
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    stdout().write_all(&talk("gemini.circumlunar.space", "docs/specification.gmi", config).unwrap()).unwrap();
+    talk("gemini.circumlunar.space", "docs/specification.gmi", config)?;
     Ok(())
 }
