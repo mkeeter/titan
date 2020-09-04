@@ -56,3 +56,15 @@ pub struct ResponseHeader {
     pub status: ResponseStatus,
     pub meta: String,
 }
+
+#[derive(Debug)]
+pub enum Line {
+    Text(String),
+    Link { url: String, name: Option<String> },
+    Pre { alt: Option<String>, text: String },
+    H1(String),
+    H2(String),
+    H3(String),
+    List(String),
+    Quote(String),
+}

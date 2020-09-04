@@ -85,6 +85,6 @@ fn main() -> Result<()> {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    stdout().write_all(&talk("avalos.me", "gemlog/2020-08-22-gemini-makes-me-feel-part-of-something.gmi", config).unwrap()).unwrap();
+    stdout().write_all(&talk("gemini.circumlunar.space", "docs/specification.gmi", config).unwrap()).unwrap();
     Ok(())
 }
