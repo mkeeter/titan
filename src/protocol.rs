@@ -57,7 +57,7 @@ pub struct ResponseHeader {
     pub meta: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Line {
     Text(String),
     Link { url: String, name: Option<String> },

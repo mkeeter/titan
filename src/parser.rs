@@ -3,10 +3,12 @@ use std::convert::TryFrom;
 use anyhow::Result;
 
 use nom::{
-  IResult,
-  bytes::complete::{tag, take_while_m_n, take_until, take_while},
-  character::{is_space, is_digit},
-  combinator::map_res};
+    IResult,
+    branch::alt,
+    bytes::complete::{tag, take_while_m_n, take_while},
+    character::{is_digit},
+    combinator::{map_res, rest},
+};
 
 use crate::protocol::{ResponseStatus, ResponseHeader, Line};
 
@@ -33,6 +35,8 @@ pub fn parse_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {
     Ok((input, ResponseHeader { status, meta }))
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
 pub fn parse_line_h1(input: &str) -> IResult<&str, Line> {
     let (input, _) = tag("#")(input)?;
     let (input, _) = take_while(char::is_whitespace)(input)?;
@@ -53,12 +57,14 @@ pub fn parse_line_h3(input: &str) -> IResult<&str, Line> {
 
 pub fn parse_line_list(input: &str) -> IResult<&str, Line> {
     let (input, _) = tag("* ")(input)?;
+    let (input, _) = take_while(char::is_whitespace)(input)?;
     Ok((input, Line::List(input.to_string())))
 }
 
 pub fn parse_line_quote(input: &str) -> IResult<&str, Line> {
     let (input, _) = tag(">")(input)?;
-    Ok((input, Line::List(input.to_string())))
+    let (input, _) = take_while(char::is_whitespace)(input)?;
+    Ok((input, Line::Quote(input.to_string())))
 }
 
 pub fn parse_line_link(input: &str) -> IResult<&str, Line> {
@@ -74,4 +80,51 @@ pub fn parse_line_link(input: &str) -> IResult<&str, Line> {
         Some(input.to_string())
     };
     Ok((input, Line::Link { url, name }))
+}
+
+pub fn parse_line_pre(input: &str) -> IResult<&str, Line> {
+    let (input, _) = tag("```")(input)?;
+    let (input, alt) = rest(input)?;
+    let alt = if alt.is_empty() {
+        None
+    } else {
+        Some(alt.to_string())
+    };
+    Ok((input, Line::Pre { alt, text: String::new() }))
+}
+
+pub fn parse_line_text(input: &str) -> IResult<&str, Line> {
+    let (input, text) = rest(input)?;
+    Ok((input, Line::Text(text.to_string())))
+}
+
+pub fn parse_line(input: &str) -> IResult<&str, Line> {
+    alt((parse_line_h3, parse_line_h2, parse_line_h1, parse_line_list,
+         parse_line_quote, parse_line_link, parse_line_pre, parse_line_text))
+        (input)
+}
+
+#[test]
+pub fn test_parse_line() {
+    let r = parse_line("=> hello.com world").unwrap();
+    assert_eq!(r.1, Line::Link {
+        url: "hello.com".to_string(),
+        name: Some("world".to_string()) });
+
+    let r = parse_line("=> hello.com ").unwrap();
+    assert_eq!(r.1, Line::Link {
+        url: "hello.com".to_string(),
+        name: None });
+
+    let r = parse_line("#header").unwrap();
+    assert_eq!(r.1, Line::H1("header".to_string()));
+
+    let r = parse_line("#  header").unwrap();
+    assert_eq!(r.1, Line::H1("header".to_string()));
+
+    let r = parse_line("> quote").unwrap();
+    assert_eq!(r.1, Line::Quote("quote".to_string()));
+
+    let r = parse_line("```py").unwrap();
+    assert_eq!(r.1, Line::Pre { alt: Some("py".to_string()), text: String::new() });
 }
