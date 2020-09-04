@@ -107,13 +107,28 @@ pub fn parse_line(input: &str) -> IResult<&str, Line> {
 
 pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
     let mut out = Vec::new();
+    let mut in_pre = false;
     while !input.is_empty() {
         let (input_, line) = terminated(
                 take_while(|c| c != '\r' && c != '\n'),
                 alt((tag("\r\n"), tag("\n"), tag(""))))
             (input)?;
-        out.push(parse_line(line)?.1);
         input = input_;
+
+        if in_pre {
+            if parse_line_pre(line).is_ok() {
+                in_pre = false;
+            } else {
+                println!("Got pre {}", line);
+            }
+        } else {
+            let parsed = parse_line(line)?.1;
+            if let Line::Pre { alt: _, text: _ } = parsed {
+                in_pre = true;
+            } else {
+                out.push(parsed);
+            }
+        }
     }
 
     Ok((input, out))
