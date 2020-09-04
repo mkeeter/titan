@@ -107,7 +107,11 @@ pub fn parse_line(input: &str) -> IResult<&str, Line> {
 
 pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
     let mut out = Vec::new();
-    let mut in_pre = false;
+    struct PreArray {
+        lines: Vec<String>,
+        alt: Option<String>,
+    }
+    let mut in_pre: Option<PreArray> = None;
     while !input.is_empty() {
         let (input_, line) = terminated(
                 take_while(|c| c != '\r' && c != '\n'),
@@ -115,16 +119,19 @@ pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
             (input)?;
         input = input_;
 
-        if in_pre {
+        if let Some(pre) = in_pre.as_mut() {
             if parse_line_pre(line).is_ok() {
-                in_pre = false;
+                out.push(Line::Pre {
+                    alt: pre.alt.clone(),
+                    text: pre.lines.join("\n") });
+                in_pre = None;
             } else {
-                println!("Got pre {}", line);
+                pre.lines.push(line.to_string());
             }
         } else {
             let parsed = parse_line(line)?.1;
-            if let Line::Pre { alt: _, text: _ } = parsed {
-                in_pre = true;
+            if let Line::Pre { alt, text: _ } = parsed {
+                in_pre = Some(PreArray { lines: Vec::new(), alt });
             } else {
                 out.push(parsed);
             }
@@ -168,5 +175,7 @@ pub fn test_parse_line() {
     assert_eq!(r.1, Line::Quote("quote".to_string()));
 
     let r = parse_line("```py").unwrap();
-    assert_eq!(r.1, Line::Pre { alt: Some("py".to_string()), text: String::new() });
+    assert_eq!(r.1, Line::Pre {
+        alt: Some("py".to_string()),
+        text: String::new() });
 }
