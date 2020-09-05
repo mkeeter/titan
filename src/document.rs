@@ -18,7 +18,7 @@ impl Document {
                 .wrap(name),
             Link { name: None, .. } => vec![],
             Pre { text, .. } => text.split('\n')
-                .map(|s: &str| std::borrow::Cow::from(s))
+                .map(std::borrow::Cow::from)
                 .collect(),
             H1(t) => wrapper
                 .initial_indent("# ")
@@ -33,7 +33,7 @@ impl Document {
                 .subsequent_indent("    ")
                 .wrap(t),
             List(t) => wrapper
-                .initial_indent("* ")
+                .initial_indent("• ")
                 .subsequent_indent("  ")
                 .wrap(t),
             Quote(t) => wrapper
@@ -70,21 +70,31 @@ impl WrappedDocument {
     pub fn pretty_print(&self) {
         for block in &self.0 {
             use Line_::*;
+            use colored::*;
+            let color_fn = |s: &str| match block {
+                H1(_) =>  s.color("red"),
+                H2(_) =>  s.color("yellow"),
+                H3(_) =>  s.color("green"),
+                Text(_) =>  s.clear(),
+                Quote(_) =>  s.color("cyan"),
+                Pre { .. } =>  s.color("orange"),
+                Link { .. } => s.color("magenta"),
+                List(_) => s.clear(),
+            };
             match block {
                 H1(t) | H2(t) | H3(t) | Text(t) |
                 List(t) | Quote(t) | Pre { text: t, .. } |
                 Link { name: Some(t), .. } => {
                     for u in t {
-                        println!("{}", u);
+                        println!("{}", color_fn(u));
                     }
                     if t.is_empty() {
-                        println!("");
+                        println!();
                     }
                 },
                 Link { name: None, url } => {
                     println!("{}", url);
                 }
-                _ => unimplemented!(),
             }
         }
     }
