@@ -3,12 +3,14 @@ use std::sync::{Arc};
 use std::net::TcpStream;
 use anyhow::{anyhow, Result};
 
+mod document;
 mod protocol;
 mod parser;
 mod tofu;
 
+use crate::document::Document;
 use crate::parser::{parse_response_header, parse_text_gemini};
-use crate::protocol::{Document, ResponseHeader, ResponseStatus, Line};
+use crate::protocol::{ResponseHeader, ResponseStatus, Line};
 use crate::tofu::GeminiCertificateVerifier;
 
 fn fetch<F>(target: &str, config: Arc<rustls::ClientConfig>, reader: F)
@@ -71,7 +73,7 @@ fn fetch_<F>(target: &str, config: Arc<rustls::ClientConfig>,
             let mut url = url;
             {   // Modify the URL to include the query string
                 let mut segs = url.path_segments_mut()
-                        .map_err(|_| anyhow!("Could not get path segments"))?;
+                    .map_err(|_| anyhow!("Could not get path segments"))?;
                 if has_query {
                     segs.pop();
                 }
@@ -83,13 +85,15 @@ fn fetch_<F>(target: &str, config: Arc<rustls::ClientConfig>,
         Success =>
             if header.meta.starts_with("text/gemini") {
                 let body = std::str::from_utf8(body)?;
+                println!("Got body:\n{}", body);
                 let (_, text) = parse_text_gemini(body).map_err(
                     |e| anyhow!("text/gemini parsing failed: {}", e))?;
                 Ok((header, Some(text)))
             } else if header.meta.starts_with("text/") {
-                // Read other text/ MIME types as a single plain-text line
+                // Read other text/ MIME types as a single preformatted line
                 let body = std::str::from_utf8(body)?;
-                Ok((header, Some(vec![Line::Text(body.to_string())])))
+                let text = Line::Pre { alt: None, text: body.to_string() };
+                Ok((header, Some(Document(vec![text]))))
             } else {
                 Err(anyhow!("Unknown meta: {}", header.meta))
             },
@@ -118,6 +122,13 @@ fn main() -> Result<()> {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    fetch("gemini://gemini.circumlunar.space", config, read_bytes)?;
+    let doc = fetch("gemini://gemini.circumlunar.space", config, read_bytes)?
+        .1
+        .unwrap();
+    println!("{:?}", doc);
+    doc.word_wrap(60)
+        .pretty_print();
+
+    println!("{:?}", Document(vec![Line::Text("".to_string())]).word_wrap(40));
     Ok(())
 }

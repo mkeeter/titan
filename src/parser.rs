@@ -2,6 +2,8 @@ use std::convert::TryFrom;
 
 use anyhow::Result;
 
+use crate::document::Document;
+
 use nom::{
     IResult,
     branch::alt,
@@ -109,7 +111,7 @@ pub fn parse_line(input: &str) -> IResult<&str, Line> {
 }
 
 /// Parse a full text/gemini document
-pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
+pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Document> {
     let mut out = Vec::new();
 
     // This struct lets us accumulate a whole block of preformatted text,
@@ -147,7 +149,7 @@ pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Vec<Line>> {
         }
     }
 
-    Ok((input, out))
+    Ok((input, Document(out)))
 }
 
 #[test]
@@ -160,14 +162,14 @@ pub fn test_parse_text_gemini() {
 for i in range(10):
     print(i)
 ```").unwrap();
-    assert_eq!(r.1, vec![
+    assert_eq!(r.1, Document(vec![
         Line::H1("h1".to_string()),
         Line::Quote("quote".to_string()),
         Line::H2("h2".to_string()),
         Line::Text("".to_string()),
         Line::Pre { alt: Some("py".to_string()), text: "for i in range(10):
     print(i)".to_string()},
-    ]);
+    ]));
 }
 
 #[test]

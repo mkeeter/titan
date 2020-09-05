@@ -23,6 +23,9 @@ features = ["dangerous_configuration"]
 [dependencies.sled]
 version = "0.34.3"
 
+[dependencies.textwrap]
+version = "0.12.1"
+
 [dependencies.url]
 version = "2.1.1"
 

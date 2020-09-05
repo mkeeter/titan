@@ -58,15 +58,15 @@ pub struct ResponseHeader {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum Line {
-    Text(String),
-    Link { url: String, name: Option<String> },
-    Pre { alt: Option<String>, text: String },
-    H1(String),
-    H2(String),
-    H3(String),
-    List(String),
-    Quote(String),
+pub enum Line_<T> {
+    Text(T),
+    Link { url: String, name: Option<T> },
+    Pre { alt: Option<String>, text: T },
+    H1(T),
+    H2(T),
+    H3(T),
+    List(T),
+    Quote(T),
 }
 
-pub type Document = Vec<Line>;
+pub type Line = Line_<String>;
