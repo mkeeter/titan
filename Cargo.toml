@@ -13,6 +13,9 @@ version = "3.0.1"
 [dependencies.nom]
 version = "5.1.2"
 
+[dependencies.percent-encoding]
+version = "2.1.0"
+
 [dependencies.rustls]
 version = "0.18.1"
 features = ["dangerous_configuration"]
