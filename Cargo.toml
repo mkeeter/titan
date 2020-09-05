@@ -20,5 +20,8 @@ features = ["dangerous_configuration"]
 [dependencies.sled]
 version = "0.34.3"
 
+[dependencies.url]
+version = "2.1.1"
+
 [dependencies.webpki]
 version = "0.21.3"

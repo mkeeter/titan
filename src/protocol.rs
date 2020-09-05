@@ -68,3 +68,5 @@ pub enum Line {
     List(String),
     Quote(String),
 }
+
+pub type Document = Vec<Line>;

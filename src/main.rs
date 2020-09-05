@@ -8,18 +8,38 @@ mod parser;
 mod tofu;
 
 use crate::parser::{parse_response_header, parse_text_gemini};
-use crate::protocol::{ResponseHeader, ResponseStatus, Line};
+use crate::protocol::{Document, ResponseHeader, ResponseStatus, Line};
 use crate::tofu::GeminiCertificateVerifier;
 
-fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
-    -> Result<(ResponseHeader, Option<Vec<Line>>)>
+fn fetch(target: &str, config: Arc<rustls::ClientConfig>)
+    -> Result<(ResponseHeader, Option<Document>)>
 {
+    fetch_(target, config, 0)
+}
+
+fn fetch_(target: &str, config: Arc<rustls::ClientConfig>, depth: u8)
+    -> Result<(ResponseHeader, Option<Document>)>
+{
+    println!("Fetching {}", target);
+    if depth >= 5 {
+        return Err(anyhow!("Too much recursion"));
+    }
+
+    let url = url::Url::parse(target)?;
+    if url.scheme() != "gemini" {
+        return Err(anyhow!("Invalid URL scheme: {}", url.scheme()));
+    }
+
+    let hostname = url.host_str()
+        .ok_or_else(|| anyhow!("Error: no hostname in {}", target))?;
     let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
     let mut sess = rustls::ClientSession::new(&config, dns_name);
 
-    let mut sock = TcpStream::connect(format!("{}:1965", hostname))?;
+    let port = url.port().unwrap_or(1965);
+    let mut sock = TcpStream::connect(format!("{}:{}", hostname, port))?;
     let mut tls = rustls::Stream::new(&mut sess, &mut sock);
-    tls.write_all(format!("gemini://{}/{}\r\n", hostname, page).as_bytes())?;
+
+    tls.write_all(format!("{}\r\n", target).as_bytes())?;
 
     let mut plaintext = Vec::new();
     let rc = tls.read_to_end(&mut plaintext);
@@ -34,16 +54,30 @@ fn talk(hostname: &str, page: &str, config: Arc<rustls::ClientConfig>)
 
     let (body, header) = parse_response_header(&plaintext).map_err(
         |e| anyhow!("Header parsing failed: {}", e))?;
-    if header.status != ResponseStatus::Success {
-        return Ok((header, None));
+
+    use ResponseStatus::*;
+    match header.status {
+        RedirectTemporary | RedirectPermanent =>
+            fetch_(&header.meta, config, depth + 1),
+
+        // Only read the response body if we got a Success response status
+        Success =>
+            if header.meta.starts_with("text/gemini") {
+                let body = std::str::from_utf8(body)?;
+                let (_, text) = parse_text_gemini(body).map_err(
+                    |e| anyhow!("text/gemini parsing failed: {}", e))?;
+                Ok((header, Some(text)))
+            } else if header.meta.starts_with("text/") {
+                // Read other text/ MIME types as a single plain-text line
+                let body = std::str::from_utf8(body)?;
+                Ok((header, Some(vec![Line::Text(body.to_string())])))
+            } else {
+                Err(anyhow!("Unknown meta: {}", header.meta))
+            },
+
+        // Otherwise, return the header
+        _ => Ok((header, None)),
     }
-    if header.meta.starts_with("text/gemini") {
-        let body = std::str::from_utf8(body)?;
-        let (_, text) = parse_text_gemini(body).map_err(
-            |e| anyhow!("text/gemini parsing failed: {}", e))?;
-        return Ok((header, Some(text)));
-    }
-    Err(anyhow!("Unknown meta {}", header.meta))
 }
 
 fn main() -> Result<()> {
@@ -57,6 +91,6 @@ fn main() -> Result<()> {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    talk("gemini.circumlunar.space", "docs/specification.gmi", config)?;
+    fetch("gemini://gemini.circumlunar.space", config)?;
     Ok(())
 }
