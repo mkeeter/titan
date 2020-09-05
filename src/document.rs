@@ -1,13 +1,13 @@
 use crate::protocol::{Line, Line_};
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Document(pub Vec<Line>);
+pub struct Document<'a>(pub Vec<Line<'a>>);
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct WrappedDocument(pub Vec<Line_<Vec<String>>>);
+pub struct WrappedDocument<'a>(pub Vec<Line_<'a, Vec<&'a str>>>);
 
-impl Document {
-    fn line_wrap(line: &Line, width: usize) -> Line_<Vec<String>> {
+impl Document<'_> {
+    fn line_wrap<'a>(line: &'a Line, width: usize) -> Line_<'a, Vec<&'a str>> {
         use Line_::*;
         let wrapper = textwrap::Wrapper::new(width);
         let t = match line {
@@ -41,14 +41,20 @@ impl Document {
                 .subsequent_indent("> ")
                 .wrap(t),
         }.into_iter()
-            .map(|s| s.to_string())
+            .map(|b| {
+                if let std::borrow::Cow::Borrowed(c) = b {
+                    c
+                } else {
+                    panic!("Failed in zero-allocation word-wrapping");
+                }
+            })
             .collect();
 
         match line {
             Text(_) => Text(t),
             Link { name: Some(_name), url } => Link {
                 name: Some(t),
-                url: url.to_string() },
+                url: url },
             Link { name: None, url } => Link { name: None, url: url.clone() },
             Pre { alt, .. } => Pre { alt: alt.clone(), text: t },
             H1(_) => H1(t),
@@ -66,7 +72,7 @@ impl Document {
     }
 }
 
-impl WrappedDocument {
+impl WrappedDocument<'_> {
     pub fn pretty_print(&self) {
         for block in &self.0 {
             use Line_::*;

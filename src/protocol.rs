@@ -52,16 +52,16 @@ impl TryFrom<u32> for ResponseStatus {
 }
 
 #[derive(Debug)]
-pub struct ResponseHeader {
+pub struct ResponseHeader<'a> {
     pub status: ResponseStatus,
-    pub meta: String,
+    pub meta: &'a str,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub enum Line_<T> {
+pub enum Line_<'a, T> {
     Text(T),
-    Link { url: String, name: Option<T> },
-    Pre { alt: Option<String>, text: T },
+    Link { url: &'a str, name: Option<T> },
+    Pre { alt: Option<&'a str>, text: T },
     H1(T),
     H2(T),
     H3(T),
@@ -69,4 +69,4 @@ pub enum Line_<T> {
     Quote(T),
 }
 
-pub type Line = Line_<String>;
+pub type Line<'a> = Line_<'a, &'a str>;
