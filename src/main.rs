@@ -92,7 +92,6 @@ fn fetch_<R, D, H>(target: &str, config: Arc<rustls::ClientConfig>,
         Success =>
             if header.meta.starts_with("text/gemini") {
                 let body = std::str::from_utf8(body)?;
-                println!("Got body:\n{}", body);
                 let (_, text) = parse_text_gemini(body).map_err(
                     |e| anyhow!("text/gemini parsing failed: {}", e))?;
                 doc_cb(&text)?;
@@ -122,7 +121,7 @@ fn read_bytes(prompt: &str, _sensitive: bool) -> Result<String> {
 }
 
 fn print_doc(doc: &Document) -> Result<()> {
-    println!("{:?}", doc);
+    doc.word_wrap(40).pretty_print();
     Ok(())
 }
 
