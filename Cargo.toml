@@ -7,9 +7,6 @@ edition = "2018"
 [dependencies.anyhow]
 version = "1.0.32"
 
-[dependencies.colored]
-version = "2"
-
 [dependencies.crossterm]
 version = "0.17.7"
 
