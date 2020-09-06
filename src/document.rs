@@ -8,14 +8,16 @@ pub struct Document<'a>(pub Vec<Line<'a>>);
 pub struct WrappedDocument<'a>(pub Vec<Line_<'a, Vec<Cow<'a, str>>>>);
 
 impl Document<'_> {
-    fn line_wrap<'a>(line: &'a Line, width: usize) -> Line_<'a, Vec<Cow<'a, str>>> {
+    fn line_wrap<'a>(line: &'a Line, width: usize)
+        -> Line_<'a, Vec<Cow<'a, str>>>
+    {
         use Line_::*;
         let wrapper = textwrap::Wrapper::new(width);
         let t = match line {
             Text(t) => wrapper.wrap(t),
             Link { name: Some(name), .. } => wrapper
                 .initial_indent("=> ")
-                .subsequent_indent("=  ")
+                .subsequent_indent("   ")
                 .wrap(name),
             Link { name: None, .. } => vec![],
             Pre { text, .. } => text.iter()
