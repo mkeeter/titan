@@ -43,6 +43,7 @@ impl Fetch for View {
     }
 
     fn display(&mut self, doc: &Document) -> Result<()> {
+        terminal::enable_raw_mode()?;
         let (tw, th) = terminal::size()?;
         let d = doc.word_wrap(tw.into());
         queue!(self.out, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
@@ -63,7 +64,9 @@ impl Fetch for View {
         self.out.flush()?;
         loop {
             // `read()` blocks until an `Event` is available
-            match read()? {
+            let evt = read()?;
+            println!("Got event {:?}", evt);
+            match evt {
                 Event::Key(event) => {
                     if event.code == KeyCode::Char('q') {
                         break;
