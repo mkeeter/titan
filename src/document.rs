@@ -17,8 +17,8 @@ impl Document<'_> {
                 .subsequent_indent("=  ")
                 .wrap(name),
             Link { name: None, .. } => vec![],
-            Pre { text, .. } => text.split('\n')
-                .map(std::borrow::Cow::from)
+            Pre { text, .. } => text.iter()
+                .map(|s| std::borrow::Cow::from(*s))
                 .collect(),
             H1(t) => wrapper
                 .initial_indent("# ")
@@ -54,9 +54,9 @@ impl Document<'_> {
             Text(_) => Text(t),
             Link { name: Some(_name), url } => Link {
                 name: Some(t),
-                url: url },
-            Link { name: None, url } => Link { name: None, url: url.clone() },
-            Pre { alt, .. } => Pre { alt: alt.clone(), text: t },
+                url },
+            Link { name: None, url } => Link { name: None, url },
+            Pre { alt, .. } => Pre { alt: *alt, text: t },
             H1(_) => H1(t),
             H2(_) => H2(t),
             H3(_) => H3(t),

@@ -11,6 +11,7 @@ use nom::{
     character::{is_digit},
     character::complete::space0,
     combinator::map_res,
+    multi::many_till,
     sequence::{terminated, tuple},
 };
 
@@ -33,7 +34,7 @@ pub fn parse_response_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {
             std::str::from_utf8)
     ))(input)?;
 
-    Ok((input, ResponseHeader { status, meta: meta }))
+    Ok((input, ResponseHeader { status, meta }))
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -88,14 +89,17 @@ fn parse_line_link(input: &str) -> IResult<&str, Line> {
     Ok((input, Line::Link { url, name }))
 }
 
-fn parse_line_pre(input: &str) -> IResult<&str, Line> {
+fn parse_pre(input: &str) -> IResult<&str, Line> {
     let (input, (_, alt)) = tuple((tag("```"), read_line))(input)?;
     let alt = if alt.is_empty() {
         None
     } else {
         Some(alt)
     };
-    Ok((input, Line::Pre { alt, text: "" }))
+    let (input, (text, _)) = many_till(read_line, tag("```"))(input)?;
+    read_line(input)?;
+
+    Ok((input, Line::Pre { alt, text }))
 }
 
 fn parse_line_text(input: &str) -> IResult<&str, Line> {
@@ -103,52 +107,21 @@ fn parse_line_text(input: &str) -> IResult<&str, Line> {
     Ok((input, Line::Text(text)))
 }
 
-/// Parse a single line of text/gemini
+/// Parse a single line or preformatted block of text/gemini
 pub fn parse_line(input: &str) -> IResult<&str, Line> {
     alt((parse_line_h3, parse_line_h2, parse_line_h1, parse_line_list,
-         parse_line_quote, parse_line_link, parse_line_pre, parse_line_text))
+         parse_line_quote, parse_line_link, parse_pre, parse_line_text))
         (input)
 }
 
 /// Parse a full text/gemini document
-pub fn parse_text_gemini<'a>(mut input: &'a str) -> IResult<&str, Document> {
+pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Document> {
     let mut out = Vec::new();
 
-    // This struct lets us accumulate a whole block of preformatted text,
-    // rather than having an accidentally quadratic accumulator of lines.
-    struct PreArray<'a> {
-        lines: Vec<&'a str>,
-        alt: Option<&'a str>,
-    }
-    let mut in_pre: Option<PreArray<'a>> = None;
-
     while !input.is_empty() {
-        // If we're in the middle of a preformatted block, then check to see
-        // whether this line ends the block; otherwise, accumulate raw text
-        /*
-        if let Some(pre) = in_pre.as_mut() {
-            let r = parse_line_pre(input);
-            if let Ok((input_, _alt)) = r {
-                out.push(Line::Pre {
-                    alt: pre.alt.take(),
-                    text: pre.lines.join("\n") });
-                in_pre = None;
-                input = input_;
-            } else {
-                let (input_, line) = read_line(input)?;
-                pre.lines.push(line);
-                input = input_;
-            }
-        } else {
-            */
-            let (input_, parsed) = parse_line(input)?;
-            input = input_;
-            if let Line::Pre { alt, .. } = parsed {
-                in_pre = Some(PreArray { lines: Vec::new(), alt });
-            } else {
-                out.push(parsed);
-            }
-        //}
+        let (input_, parsed) = parse_line(input)?;
+        input = input_;
+        out.push(parsed);
     }
 
     Ok((input, Document(out)))
@@ -169,8 +142,9 @@ for i in range(10):
         Line::Quote("quote"),
         Line::H2("h2"),
         Line::Text(""),
-        Line::Pre { alt: Some("py"), text: "for i in range(10):
-    print(i)"},
+        Line::Pre { alt: Some("py"), text: vec![
+"for i in range(10):",
+"    print(i)"]},
     ]));
 }
 
@@ -194,9 +168,4 @@ pub fn test_parse_line() {
 
     let r = parse_line("> quote").unwrap();
     assert_eq!(r.1, Line::Quote("quote"));
-
-    let r = parse_line("```py").unwrap();
-    assert_eq!(r.1, Line::Pre {
-        alt: Some("py"),
-        text: "" });
 }

@@ -61,7 +61,7 @@ pub struct ResponseHeader<'a> {
 pub enum Line_<'a, T> {
     Text(T),
     Link { url: &'a str, name: Option<T> },
-    Pre { alt: Option<&'a str>, text: T },
+    Pre { alt: Option<&'a str>, text: Vec<&'a str> },
     H1(T),
     H2(T),
     H3(T),
