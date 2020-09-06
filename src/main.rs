@@ -1,13 +1,14 @@
 use std::io::{BufRead, Write};
 use std::sync::{Arc};
 
-use anyhow::{Result};
+use anyhow::Result;
 
 mod document;
 mod protocol;
 mod parser;
 mod tofu;
 mod fetch;
+mod view;
 
 use crate::document::Document;
 use crate::fetch::{Fetch, fetch};
@@ -16,11 +17,9 @@ use crate::tofu::GeminiCertificateVerifier;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct Simple(Arc<rustls::ClientConfig>);
+struct Simple { }
 
 impl Fetch for Simple {
-    fn config(&self) -> Arc<rustls::ClientConfig> { self.0.clone() }
-
     fn input(&mut self, prompt: &str, _is_sensitive: bool) -> Result<String> {
         print!("{}", prompt);
         std::io::stdout().lock().flush()?;
@@ -52,6 +51,6 @@ fn main() -> Result<()> {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    fetch("gemini://gemini.circumlunar.space", &mut Simple(config))?;
+    fetch("gemini://gemini.circumlunar.space", config, &mut Simple{})?;
     Ok(())
 }

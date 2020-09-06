@@ -9,18 +9,18 @@ use crate::parser::{parse_response_header, parse_text_gemini};
 use crate::protocol::{Line, ResponseHeader, ResponseStatus};
 
 pub trait Fetch {
-    fn config(&self) -> Arc<rustls::ClientConfig>;
-
     fn input(&mut self, prompt: &str, is_sensitive: bool) -> Result<String>;
     fn display(&mut self, doc: &Document) -> Result<()>;
     fn header(&mut self, header: &ResponseHeader) -> Result<()>;
 }
 
-pub fn fetch<F: Fetch>(target: &str, cb: &mut F) -> Result<()> {
-    fetch_(target, cb, 0)
+pub fn fetch<F: Fetch>(target: &str, config: Arc<rustls::ClientConfig>,
+                       cb: &mut F) -> Result<()> {
+    fetch_(target, config, cb, 0)
 }
 
-fn fetch_<F: Fetch>(target: &str, cb: &mut F, depth: u8) -> Result<()> {
+fn fetch_<F: Fetch>(target: &str, config: Arc<rustls::ClientConfig>,
+                    cb: &mut F, depth: u8) -> Result<()> {
     println!("Fetching {}", target);
     if depth >= 5 {
         return Err(anyhow!("Too much recursion"));
@@ -34,7 +34,7 @@ fn fetch_<F: Fetch>(target: &str, cb: &mut F, depth: u8) -> Result<()> {
     let hostname = url.host_str()
         .ok_or_else(|| anyhow!("Error: no hostname in {}", target))?;
     let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
-    let mut sess = rustls::ClientSession::new(&cb.config(), dns_name);
+    let mut sess = rustls::ClientSession::new(&config, dns_name);
 
     let port = url.port().unwrap_or(1965);
     let mut sock = TcpStream::connect(format!("{}:{}", hostname, port))?;
@@ -59,7 +59,7 @@ fn fetch_<F: Fetch>(target: &str, cb: &mut F, depth: u8) -> Result<()> {
     use ResponseStatus::*;
     match header.status {
         RedirectTemporary | RedirectPermanent => {
-            return fetch_(&header.meta, cb, depth + 1);
+            return fetch_(&header.meta, config, cb, depth + 1);
         },
 
         Input | SensitiveInput => {
@@ -76,7 +76,7 @@ fn fetch_<F: Fetch>(target: &str, cb: &mut F, depth: u8) -> Result<()> {
                 }
                 segs.extend(&["?", &input]);
             }
-            return fetch_(url.as_str(), cb, depth + 1);
+            return fetch_(url.as_str(), config, cb, depth + 1);
         },
         // Only read the response body if we got a Success response status
         Success =>
