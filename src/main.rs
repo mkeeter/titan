@@ -26,6 +26,6 @@ fn main() -> Result<()> {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
-    fetch("gemini://gemini.circumlunar.space", config, &mut View::new())?;
+    fetch("gemini://gemini.circumlunar.space", config, &mut View {})?;
     Ok(())
 }

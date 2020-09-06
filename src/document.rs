@@ -4,8 +4,9 @@ use crate::protocol::{Line, Line_};
 #[derive(Debug, Eq, PartialEq)]
 pub struct Document<'a>(pub Vec<Line<'a>>);
 
+pub type WrappedLine<'a> = Line_<'a, Vec<Cow<'a, str>>>;
 #[derive(Debug, Eq, PartialEq)]
-pub struct WrappedDocument<'a>(pub Vec<Line_<'a, Vec<Cow<'a, str>>>>);
+pub struct WrappedDocument<'a>(pub Vec<WrappedLine<'a>>);
 
 impl Document<'_> {
     fn line_wrap<'a>(line: &'a Line, width: usize)
