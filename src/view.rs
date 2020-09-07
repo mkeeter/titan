@@ -87,7 +87,7 @@ impl WrappedView<'_> {
         // Special-case for URLs without alt text, which are drawn on
         // a single line.  TODO: handle overly long lines here.
         let line = &self.doc.0[index.0];
-        if let Link { name: None, url } = line {
+        if let BareLink(url) = line {
             assert!(index.1 == 0);
             return self.draw_block(
                 out, &[url], sy, &c.foreground(Color::Magenta),
@@ -100,7 +100,7 @@ impl WrappedView<'_> {
         // styling functions
         let (v, mut first, later, style) = match line {
             Text(t) => (t, "", "", c),
-            Link { name: Some(t), .. } => (t, "→ ", "  ", c.foreground(Color::Magenta)),
+            NamedLink { name, .. } => (name, "→ ", "  ", c.foreground(Color::Magenta)),
             H1(t) => (t, "# ", "  ", c.foreground(Color::DarkRed)),
             H2(t) => (t, "## ", "   ", c.foreground(Color::DarkYellow)),
             H3(t) => (t, "### ", "    ", c.foreground(Color::DarkCyan)),

@@ -80,13 +80,12 @@ fn parse_line_link(input: &str) -> IResult<&str, Line> {
             terminated(take_till(char::is_whitespace), space0),
             read_line))(input)?;
 
-    let url = url;
-    let name = if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    };
-    Ok((input, Line::Link { url, name }))
+    Ok((input,
+        if name.is_empty() {
+            Line::BareLink(url)
+        } else {
+            Line::NamedLink { url, name }
+        }))
 }
 
 fn parse_pre(input: &str) -> IResult<&str, Line> {
@@ -151,14 +150,12 @@ for i in range(10):
 #[test]
 pub fn test_parse_line() {
     let r = parse_line("=> hello.com world").unwrap();
-    assert_eq!(r.1, Line::Link {
+    assert_eq!(r.1, Line::NamedLink {
         url: "hello.com",
         name: Some("world") });
 
     let r = parse_line("=> hello.com ").unwrap();
-    assert_eq!(r.1, Line::Link {
-        url: "hello.com",
-        name: None });
+    assert_eq!(r.1, Line::BareLink("hello.com"));
 
     let r = parse_line("#header").unwrap();
     assert_eq!(r.1, Line::H1("header"));

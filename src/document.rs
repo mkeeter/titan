@@ -15,8 +15,8 @@ impl Document<'_> {
         let w = textwrap::Wrapper::new;
         let mut t: Vec<&'a str> = match line {
             Text(t) => w(width).wrap(t),
-            Link { name: Some(name), .. } => w(width - 3).wrap(name), // "=> "
-            Link { name: None, .. } => vec![],
+            BareLink(..) => vec![],
+            NamedLink { name, .. } => w(width - 3).wrap(name), // "=> "
             Pre { text, .. } => text.iter()
                 .map(|s| std::borrow::Cow::from(*s))
                 .collect(),
@@ -42,10 +42,8 @@ impl Document<'_> {
 
         match line {
             Text(_) => Text(t),
-            Link { name: Some(_name), url } => Link {
-                name: Some(t),
-                url },
-            Link { name: None, url } => Link { name: None, url },
+            BareLink(url) => BareLink(url),
+            NamedLink { url, .. } => NamedLink { name: t, url },
             Pre { alt, .. } => Pre { alt: *alt, text: t },
             H1(_) => H1(t),
             H2(_) => H2(t),
