@@ -5,7 +5,7 @@ use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
 use crate::fetch::Fetch;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use crossterm::{
     cursor,
     execute,
@@ -231,7 +231,8 @@ impl Fetch for View {
         Ok(())
     }
 
-    fn header(&mut self, _header: &ResponseHeader) -> Result<()> {
-        unimplemented!("No header function yet");
+    fn header(&mut self, header: &ResponseHeader) -> Result<()> {
+        println!("Got header: {:?}", header);
+        Err(anyhow!("No header implementation yet"))
     }
 }
