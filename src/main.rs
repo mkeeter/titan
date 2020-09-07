@@ -26,6 +26,12 @@ fn main() -> Result<()> {
     config.dangerous().set_certificate_verifier(Arc::new(verifier));
     let config = Arc::new(config);
 
+    /*
+    use crate::fetch::Fetch;
+    let (_, doc) = crate::parser::parse_text_gemini("HI").unwrap();
+    View { }.display(&doc)?;
+    */
+
     fetch("gemini://gemini.circumlunar.space", config, &mut View {})?;
     Ok(())
 }

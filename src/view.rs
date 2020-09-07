@@ -1,6 +1,5 @@
 use std::convert::TryInto;
 use std::io::{Write};
-use std::fmt::Display;
 
 use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
@@ -9,10 +8,11 @@ use crate::fetch::Fetch;
 use anyhow::Result;
 use crossterm::{
     cursor,
+    execute,
     terminal,
-    event::{read, Event, KeyCode},
+    event::{read, Event, KeyCode, KeyModifiers},
     terminal::{Clear, ClearType},
-    style::{Print},
+    style::{style, Attribute, Color, Print, PrintStyledContent, StyledContent},
     queue,
 };
 
@@ -32,11 +32,37 @@ impl WrappedView<'_> {
         WrappedView { doc, size, pos: (pos.0, 0) }
     }
 
+    fn style_text(s: &str) -> StyledContent<&str> {
+        style(s)
+    }
+    fn style_h1(s: &str) -> StyledContent<&str> {
+        style(s).with(Color::DarkRed)
+    }
+    fn style_h2(s: &str) -> StyledContent<&str> {
+        style(s).with(Color::DarkYellow)
+    }
+    fn style_h3(s: &str) -> StyledContent<&str> {
+        style(s).with(Color::DarkCyan)
+    }
+    fn style_pre(s: &str) -> StyledContent<&str> {
+        style(s).with(Color::Red)
+    }
+    fn style_list(s: &str) -> StyledContent<&str> {
+        style(s)
+    }
+    fn style_quote(s: &str) -> StyledContent<&str> {
+        style(s).with(Color::White)
+    }
+    fn style_link(s: &str) -> StyledContent<&str> {
+        style(s).with(Color::Magenta)
+    }
+
     // Draws a block of lines starting at a given y position and either
     // filling the screen or finishing the block.
     //
     // Returns the number of lines that has been output
     fn draw_block<W: Write>(&self, out: &mut W, lines: &[&str], y: u16,
+                            f: &dyn Fn(&str) -> StyledContent<&str>,
                             first: &str, later: &str)
         -> Result<usize>
     {
@@ -45,7 +71,7 @@ impl WrappedView<'_> {
             queue!(out,
                 cursor::MoveTo(0, y + i as u16),
                 Print(if i == 0 { first } else { later }),
-                Print(line))?;
+                PrintStyledContent(f(line)))?;
         }
         Ok((dy as usize).min(lines.len()).max(1))
     }
@@ -53,27 +79,34 @@ impl WrappedView<'_> {
     fn draw_line<W: Write>(&self, out: &mut W, line: usize, y: u16, slice: usize) -> Result<usize> {
         use Line_::*;
 
-        if let Link { name: None, url } = &self.doc.0[line] {
+        let line = &self.doc.0[line];
+        if let Link { name: None, url } = line {
+            assert!(slice == 0);
+            return self.draw_block(out, &[url], y, &Self::style_link, "→ ", "  ");
         }
 
         // We trust that the line-wrapping has wrapped things like quotes and
-        // links so that there's room for their prefixes here.
-        let (v, mut first, later) = match &self.doc.0[line] {
-            Text(t) => (t, "", ""),
-            Link { name: Some(t), .. } => (t, "=> ", "   "),
-            Pre { text, .. } => (text, "", ""),
-            H1(t) => (t, "# ", "  "),
-            H2(t) => (t, "## ", "   "),
-            H3(t) => (t, "### ", "    "),
-            List(t) => (t, "• ", "  "),
-            Quote(t) => (t, "> ", "> "),
+        // links so that there's room for their prefixes here.  We have to do
+        // a little persuasion here to convince the type system to accept our
+        // styling functions
+        let (v, mut first, later, f):
+            (_, _, _, &dyn Fn(&str) -> StyledContent<&str>) = match line
+        {
+            Text(t) => (t, "", "", &Self::style_text),
+            Link { name: Some(t), .. } => (t, "→ ", "  ", &Self::style_link),
+            Pre { text, .. } => (text, "", "", &Self::style_pre),
+            H1(t) => (t, "# ", "  ", &Self::style_h1),
+            H2(t) => (t, "## ", "   ", &Self::style_h2),
+            H3(t) => (t, "### ", "    ", &Self::style_h3),
+            List(t) => (t, "• ", "  ", &Self::style_list),
+            Quote(t) => (t, "> ", "> ", &Self::style_quote),
             _ => unreachable!(),
         };
 
         if slice > 0 {
             first = later;
         }
-        self.draw_block(out, &v[slice..], y, first, later)
+        self.draw_block(out, &v[slice..], y, f, first, later)
     }
 
     fn draw(&self) -> Result<()> {
@@ -87,7 +120,7 @@ impl WrappedView<'_> {
 
         // Then draw as many other blocks as will fit
         let mut i = 0;
-        while y < self.size.1.into() {
+        while y < self.size.1.into() && i + 1 < self.doc.0.len() {
             i += 1;
             y += self.draw_line(&mut out, i, y.try_into().unwrap(), 0)?;
         }
@@ -96,10 +129,17 @@ impl WrappedView<'_> {
         out.flush()?;
         Ok(())
     }
+
+    fn down(&self) -> Result<()> {
+        self.draw()
+    }
+    fn up(&self) -> Result<()> {
+        self.draw()
+    }
 }
 
 impl Fetch for View {
-    fn input(&mut self, prompt: &str, is_sensitive: bool) -> Result<String> {
+    fn input(&mut self, _prompt: &str, _is_sensitive: bool) -> Result<String> {
         unimplemented!("No input function yet");
     }
 
@@ -113,16 +153,25 @@ impl Fetch for View {
             let evt = read()?;
             match evt {
                 Event::Key(event) => {
-                    if event.code == KeyCode::Char('q') {
-                        break;
+                    match event.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('j') => view.down()?,
+                        KeyCode::Char('k') => view.up()?,
+                        KeyCode::Char('c') => if event.modifiers == KeyModifiers::CONTROL {
+                            break;
+                        },
+                        _ => (),
                     }
                 },
                 _ => (),
             }
         }
+        execute!(std::io::stdout(), cursor::Show)?;
+        terminal::disable_raw_mode()?;
         Ok(())
     }
-    fn header(&mut self, header: &ResponseHeader) -> Result<()> {
+
+    fn header(&mut self, _header: &ResponseHeader) -> Result<()> {
         unimplemented!("No header function yet");
     }
 }
