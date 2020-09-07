@@ -10,7 +10,8 @@ use crossterm::{
     cursor,
     execute,
     terminal,
-    event::{read, Event, KeyCode, KeyModifiers},
+    event,
+    event::{read, Event, KeyCode, KeyModifiers, MouseEvent},
     terminal::{Clear, ClearType},
     style::{style, Color, ContentStyle, Print, PrintStyledContent},
     queue,
@@ -73,7 +74,7 @@ impl WrappedView<'_> {
             };
 
         }
-        Ok((dy as usize).min(lines.len()).max(1))
+        Ok((dy as usize).min(lines.len()))
     }
 
     // Draws the block slice at the given index, starting at screen y pos sy
@@ -137,17 +138,39 @@ impl WrappedView<'_> {
             i += 1;
             y += self.draw_line(&mut out, (i, 0), y.try_into().unwrap())?;
         }
-        queue!(out, cursor::Hide)?;
 
         out.flush()?;
         Ok(())
     }
 
-    fn down(&self) -> Result<()> {
-        self.draw()
+    fn down(&mut self) {
+        // End of block
+        if self.ycursor.1 == self.doc.0[self.ycursor.0].len() - 1 {
+            if self.ycursor.0 == self.doc.0.len() - 1 {
+                // End of doc
+            } else {
+                self.ycursor.0 += 1;
+                self.ycursor.1 = 0;
+            }
+        } else {
+            self.ycursor.1 += 1;
+        }
     }
-    fn up(&self) -> Result<()> {
-        self.draw()
+
+    fn up(&mut self) {
+        // Beginning of block
+        if self.ycursor.1 == 0 {
+            if self.ycursor.0 == 0 {
+                // Beginning of doc
+            } else {
+                // Previous block
+                self.ycursor.0 -= 1;
+                self.ycursor.1 = self.doc.0[self.ycursor.0].len() - 1;
+            }
+        } else {
+            // Previous line
+            self.ycursor.1 -= 1;
+        }
     }
 }
 
@@ -158,8 +181,9 @@ impl Fetch for View {
 
     fn display(&mut self, doc: &Document) -> Result<()> {
         terminal::enable_raw_mode()?;
+        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
         let (tw, th) = terminal::size()?;
-        let view = WrappedView::new(doc, (tw, th), (0, 0));
+        let mut view = WrappedView::new(doc, (tw, th), (0, 0));
         view.draw()?;
         loop {
             // `read()` blocks until an `Event` is available
@@ -168,10 +192,32 @@ impl Fetch for View {
                 Event::Key(event) => {
                     match event.code {
                         KeyCode::Char('q') => break,
-                        KeyCode::Char('j') => view.down()?,
-                        KeyCode::Char('k') => view.up()?,
-                        KeyCode::Char('c') => if event.modifiers == KeyModifiers::CONTROL {
-                            break;
+                        KeyCode::Char('j') => {
+                            view.down();
+                            view.draw()?;
+                        },
+                        KeyCode::Char('k') => {
+                            view.up();
+                            view.draw()?;
+                        },
+                        KeyCode::Char('c') =>
+                            // Quit on Control-C, even though it's not
+                            // actually coming through as an interrupt.
+                            if event.modifiers == KeyModifiers::CONTROL {
+                                break;
+                            },
+                        _ => (),
+                    }
+                },
+                Event::Mouse(event) => {
+                    match event {
+                        MouseEvent::ScrollUp(i, _, _) => {
+                            view.up();
+                            view.draw()?;
+                        },
+                        MouseEvent::ScrollDown(i, _, _) => {
+                            view.down();
+                            view.draw()?;
                         },
                         _ => (),
                     }
@@ -179,7 +225,8 @@ impl Fetch for View {
                 _ => (),
             }
         }
-        execute!(std::io::stdout(), cursor::Show)?;
+        execute!(std::io::stdout(), cursor::Show,
+                 event::DisableMouseCapture)?;
         terminal::disable_raw_mode()?;
         Ok(())
     }

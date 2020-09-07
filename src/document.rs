@@ -13,7 +13,7 @@ impl Document<'_> {
     {
         use Line_::*;
         let w = textwrap::Wrapper::new;
-        let t = match line {
+        let mut t: Vec<&'a str> = match line {
             Text(t) => w(width).wrap(t),
             Link { name: Some(name), .. } => w(width - 3).wrap(name), // "=> "
             Link { name: None, .. } => vec![],
@@ -33,6 +33,12 @@ impl Document<'_> {
                     panic!("Got unexpected owned Pre line");
                 })
             .collect();
+
+        // Empty lines get word-wrapped to a single empty string, rather than
+        // a completely empty vector (which makes certain things harder)
+        if t.is_empty() {
+            t = vec![""];
+        }
 
         match line {
             Text(_) => Text(t),

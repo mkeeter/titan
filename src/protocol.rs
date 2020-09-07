@@ -60,6 +60,8 @@ pub struct ResponseHeader<'a> {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Line_<'a, T> {
     Text(T),
+
+    // TODO: switch to BareLink and NamedLink, as they're rendered differently
     Link { url: &'a str, name: Option<T> },
     Pre { alt: Option<&'a str>, text: Vec<&'a str> },
     H1(T),
@@ -67,6 +69,18 @@ pub enum Line_<'a, T> {
     H3(T),
     List(T),
     Quote(T),
+}
+
+impl<'a, T> Line_<'a, Vec<T>> {
+    pub fn len(&self) -> usize {
+        use Line_::*;
+        match self {
+            Text(t) | H1(t) | H2(t) | H3(t) | List(t) | Quote(t) => t.len(),
+            Link { name: Some(name), .. } => name.len(),
+            Link { name: None, .. } => 1,
+            Pre { text, ..} => text.len(),
+        }
+    }
 }
 
 pub type Line<'a> = Line_<'a, &'a str>;
