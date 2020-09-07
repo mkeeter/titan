@@ -9,8 +9,7 @@ pub type WrappedLine<'a> = Line_<'a, Vec<&'a str>>;
 pub struct WrappedDocument<'a>(pub Vec<WrappedLine<'a>>);
 
 impl Document<'_> {
-    fn line_wrap<'a>(line: &'a Line, width: usize) -> WrappedLine<'a>
-    {
+    fn line_wrap<'a>(line: &'a Line, width: usize) -> WrappedLine<'a> {
         use Line_::*;
         let wrap = |s: &'a str, i: usize| -> Vec<&'a str> {
             let mut t: Vec<&'a str> = textwrap::Wrapper::new(width - i).wrap(s)
