@@ -12,7 +12,7 @@ use crossterm::{
     terminal,
     event::{read, Event, KeyCode, KeyModifiers},
     terminal::{Clear, ClearType},
-    style::{style, Attribute, Color, Print, PrintStyledContent, StyledContent},
+    style::{style, Color, ContentStyle, Print, PrintStyledContent},
     queue,
 };
 
@@ -20,93 +20,106 @@ pub struct View { }
 
 struct WrappedView<'a> {
     size: (u16, u16), // width, height
-    pos: (usize, usize), // Y position in the doc (block, line)
+    yscroll: (usize, usize), // Y scoll position in the doc (block, line)
+    ycursor: (usize, usize), // Y cursor position in the doc (block, line)
     doc: WrappedDocument<'a>,
 }
 
 impl WrappedView<'_> {
-    fn new<'a>(doc: &'a Document, size: (u16, u16), pos: (usize, usize))
+    fn new<'a>(doc: &'a Document, size: (u16, u16), yscroll: (usize, usize))
         -> WrappedView<'a>
     {
-        let doc = doc.word_wrap(size.0.into());
-        WrappedView { doc, size, pos: (pos.0, 0) }
-    }
-
-    fn style_text(s: &str) -> StyledContent<&str> {
-        style(s)
-    }
-    fn style_h1(s: &str) -> StyledContent<&str> {
-        style(s).with(Color::DarkRed)
-    }
-    fn style_h2(s: &str) -> StyledContent<&str> {
-        style(s).with(Color::DarkYellow)
-    }
-    fn style_h3(s: &str) -> StyledContent<&str> {
-        style(s).with(Color::DarkCyan)
-    }
-    fn style_pre(s: &str) -> StyledContent<&str> {
-        style(s).with(Color::Red)
-    }
-    fn style_list(s: &str) -> StyledContent<&str> {
-        style(s)
-    }
-    fn style_quote(s: &str) -> StyledContent<&str> {
-        style(s).with(Color::White)
-    }
-    fn style_link(s: &str) -> StyledContent<&str> {
-        style(s).with(Color::Magenta)
+        let doc = doc.word_wrap((size.0 - 1).into());
+        WrappedView { doc, size, yscroll, ycursor: yscroll }
     }
 
     // Draws a block of lines starting at a given y position and either
     // filling the screen or finishing the block.
     //
     // Returns the number of lines that has been output
-    fn draw_block<W: Write>(&self, out: &mut W, lines: &[&str], y: u16,
-                            f: &dyn Fn(&str) -> StyledContent<&str>,
-                            first: &str, later: &str)
+    fn draw_block<W: Write>(&self, out: &mut W, lines: &[&str], sy: u16,
+                            color: &ContentStyle,
+                            first: &str, later: &str,
+                            active_block: bool, active_line: usize)
         -> Result<usize>
     {
-        let dy = self.size.0 - y; // Max number of lines to draw
+        let dy = self.size.0 - sy; // Max number of lines to draw
         for (i, line) in lines.iter().take(dy as usize).enumerate() {
-            queue!(out,
-                cursor::MoveTo(0, y + i as u16),
-                Print(if i == 0 { first } else { later }),
-                PrintStyledContent(f(line)))?;
+            if active_block {
+                queue!(out,
+                    cursor::MoveTo(0, sy + i as u16),
+                    PrintStyledContent(style(" ").on(Color::Black)))?;
+                if i == active_line {
+                    let fill = " ".repeat((self.size.0 - 1).into());
+                    queue!(out,
+                        PrintStyledContent(style(fill).on(Color::Black)),
+                        cursor::MoveTo(1, sy + i as u16))?;
+                }
+            } else {
+                queue!(out,
+                    cursor::MoveTo(1, sy + i as u16))?;
+            }
+
+            if active_block && i == active_line {
+                let color = color.clone().background(Color::Black);
+                queue!(out,
+                    PrintStyledContent(color.clone().apply(
+                            if i == 0 { first } else { later })),
+                    PrintStyledContent(color.apply(line)))?;
+            } else {
+                queue!(out,
+                    Print(if i == 0 { first } else { later }),
+                    PrintStyledContent(color.clone().apply(line)))?;
+            };
+
         }
         Ok((dy as usize).min(lines.len()).max(1))
     }
 
-    fn draw_line<W: Write>(&self, out: &mut W, line: usize, y: u16, slice: usize) -> Result<usize> {
+    // Draws the block slice at the given index, starting at screen y pos sy
+    fn draw_line<W: Write>(&self, out: &mut W, index: (usize, usize), sy: u16)
+            -> Result<usize>
+    {
         use Line_::*;
+        let c = ContentStyle::new();
 
-        let line = &self.doc.0[line];
+        // Special-case for URLs without alt text, which are drawn on
+        // a single line.  TODO: handle overly long lines here.
+        let line = &self.doc.0[index.0];
         if let Link { name: None, url } = line {
-            assert!(slice == 0);
-            return self.draw_block(out, &[url], y, &Self::style_link, "→ ", "  ");
+            assert!(index.1 == 0);
+            return self.draw_block(
+                out, &[url], sy, &c.foreground(Color::Magenta),
+                "→ ", "  ", self.ycursor.0 == 0, 0);
         }
 
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.  We have to do
         // a little persuasion here to convince the type system to accept our
         // styling functions
-        let (v, mut first, later, f):
-            (_, _, _, &dyn Fn(&str) -> StyledContent<&str>) = match line
-        {
-            Text(t) => (t, "", "", &Self::style_text),
-            Link { name: Some(t), .. } => (t, "→ ", "  ", &Self::style_link),
-            Pre { text, .. } => (text, "", "", &Self::style_pre),
-            H1(t) => (t, "# ", "  ", &Self::style_h1),
-            H2(t) => (t, "## ", "   ", &Self::style_h2),
-            H3(t) => (t, "### ", "    ", &Self::style_h3),
-            List(t) => (t, "• ", "  ", &Self::style_list),
-            Quote(t) => (t, "> ", "> ", &Self::style_quote),
+        let (v, mut first, later, style) = match line {
+            Text(t) => (t, "", "", c),
+            Link { name: Some(t), .. } => (t, "→ ", "  ", c.foreground(Color::Magenta)),
+            H1(t) => (t, "# ", "  ", c.foreground(Color::DarkRed)),
+            H2(t) => (t, "## ", "   ", c.foreground(Color::DarkYellow)),
+            H3(t) => (t, "### ", "    ", c.foreground(Color::DarkCyan)),
+            List(t) => (t, "• ", "  ", c),
+            Quote(t) => (t, "> ", "> ", c.foreground(Color::White)),
+
+            // TODO: handle overly long Pre lines
+            Pre { text, .. } => (text, "", "", c.foreground(Color::Red)),
+
             _ => unreachable!(),
         };
 
-        if slice > 0 {
+        // If this is a partial slice, then don't draw first-line-only
+        // text decoration (e.g. "→" for links)
+        if index.1 > 0 {
             first = later;
         }
-        self.draw_block(out, &v[slice..], y, f, first, later)
+        self.draw_block(out, &v[index.1..], sy, &style, first, later,
+                        index.0 == self.ycursor.0,
+                        self.ycursor.1 - index.1)
     }
 
     fn draw(&self) -> Result<()> {
@@ -116,13 +129,13 @@ impl WrappedView<'_> {
         queue!(out, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
 
         // Draw the first block, which could be partial
-        let mut y = self.draw_line(&mut out, self.pos.0, 0, self.pos.1)?;
+        let mut y = self.draw_line(&mut out, self.yscroll, 0)?;
 
         // Then draw as many other blocks as will fit
         let mut i = 0;
         while y < self.size.1.into() && i + 1 < self.doc.0.len() {
             i += 1;
-            y += self.draw_line(&mut out, i, y.try_into().unwrap(), 0)?;
+            y += self.draw_line(&mut out, (i, 0), y.try_into().unwrap())?;
         }
         queue!(out, cursor::Hide)?;
 
