@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::io::{Write};
 use std::fmt::Display;
 
-use crate::document::{Document, WrappedDocument, WrappedLine};
+use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
 use crate::fetch::Fetch;
 
@@ -29,37 +29,56 @@ impl WrappedView<'_> {
         -> WrappedView<'a>
     {
         let doc = doc.word_wrap(size.0.into());
-
         WrappedView { doc, size, pos: (pos.0, 0) }
     }
 
-    fn draw_block<T: Display + Clone>(&self, out: &mut std::io::Stdout, lines: &[T], y: u16)
+    // Draws a block of lines starting at a given y position and either
+    // filling the screen or finishing the block.
+    //
+    // Returns the number of lines that has been output
+    fn draw_block<W: Write>(&self, out: &mut W, lines: &[&str], y: u16,
+                            first: &str, later: &str)
         -> Result<usize>
     {
         let dy = self.size.0 - y; // Max number of lines to draw
         for (i, line) in lines.iter().take(dy as usize).enumerate() {
-            queue!(out, cursor::MoveTo(0, y + i as u16), Print(line))?;
+            queue!(out,
+                cursor::MoveTo(0, y + i as u16),
+                Print(if i == 0 { first } else { later }),
+                Print(line))?;
         }
         Ok((dy as usize).min(lines.len()).max(1))
     }
 
-    fn draw_line(&self, out: &mut std::io::Stdout, line: usize, y: u16, slice: usize) -> Result<usize> {
+    fn draw_line<W: Write>(&self, out: &mut W, line: usize, y: u16, slice: usize) -> Result<usize> {
         use Line_::*;
-        match &self.doc.0[line] {
-            Text(t) => self.draw_block(out, &t[slice..], y),
-            Link { name: Some(t), .. } => self.draw_block(out, &t[slice..], y),
-            Link { name: None, url } => self.draw_block(out, &[url], y),
-            Pre { text, .. } => self.draw_block(out, &text[slice..], y),
-            H1(t) => self.draw_block(out, &t[slice..], y),
-            H2(t) => self.draw_block(out, &t[slice..], y),
-            H3(t) => self.draw_block(out, &t[slice..], y),
-            List(t) => self.draw_block(out, &t[slice..], y),
-            Quote(t) => self.draw_block(out, &t[slice..], y),
+
+        if let Link { name: None, url } = &self.doc.0[line] {
         }
+
+        // We trust that the line-wrapping has wrapped things like quotes and
+        // links so that there's room for their prefixes here.
+        let (v, mut first, later) = match &self.doc.0[line] {
+            Text(t) => (t, "", ""),
+            Link { name: Some(t), .. } => (t, "=> ", "   "),
+            Pre { text, .. } => (text, "", ""),
+            H1(t) => (t, "# ", "  "),
+            H2(t) => (t, "## ", "   "),
+            H3(t) => (t, "### ", "    "),
+            List(t) => (t, "• ", "  "),
+            Quote(t) => (t, "> ", "> "),
+            _ => unreachable!(),
+        };
+
+        if slice > 0 {
+            first = later;
+        }
+        self.draw_block(out, &v[slice..], y, first, later)
     }
 
     fn draw(&self) -> Result<()> {
-        let mut out = std::io::stdout();
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
 
         queue!(out, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
 
@@ -72,6 +91,7 @@ impl WrappedView<'_> {
             i += 1;
             y += self.draw_line(&mut out, i, y.try_into().unwrap(), 0)?;
         }
+        queue!(out, cursor::Hide)?;
 
         out.flush()?;
         Ok(())
@@ -87,7 +107,7 @@ impl Fetch for View {
         terminal::enable_raw_mode()?;
         let (tw, th) = terminal::size()?;
         let view = WrappedView::new(doc, (tw, th), (0, 0));
-        view.draw();
+        view.draw()?;
         loop {
             // `read()` blocks until an `Event` is available
             let evt = read()?;
