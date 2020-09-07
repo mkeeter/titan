@@ -211,11 +211,11 @@ impl Fetch for View {
                 },
                 Event::Mouse(event) => {
                     match event {
-                        MouseEvent::ScrollUp(i, _, _) => {
+                        MouseEvent::ScrollUp(..) => {
                             view.up();
                             view.draw()?;
                         },
-                        MouseEvent::ScrollDown(i, _, _) => {
+                        MouseEvent::ScrollDown(..) => {
                             view.down();
                             view.draw()?;
                         },
