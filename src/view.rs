@@ -24,6 +24,7 @@ struct WrappedView<'a> {
     yscroll: (usize, usize), // Y scoll position in the doc (block, line)
     ycursor: (usize, usize), // Y cursor position in the doc (block, line)
     doc: WrappedDocument<'a>,
+    offsets: Vec<usize>, // cumsum of lines in doc.0
 }
 
 impl WrappedView<'_> {
@@ -31,7 +32,14 @@ impl WrappedView<'_> {
         -> WrappedView<'a>
     {
         let doc = doc.word_wrap((size.0 - 1).into());
-        WrappedView { doc, size, yscroll, ycursor: yscroll }
+        let offsets = doc.0.iter()
+            .scan(0, |i, j| {
+                let out = *i;
+                *i += j.len();
+                Some(out)
+            })
+            .collect();
+        WrappedView { doc, size, yscroll, ycursor: yscroll, offsets }
     }
 
     // Draws a block of lines starting at a given y position and either
@@ -74,6 +82,13 @@ impl WrappedView<'_> {
             };
 
         }
+        queue!(out,
+            cursor::MoveTo(0, self.size.1 - 1),
+            Print(format!("{:?} {}, {:?} {}, {:?}",
+                    self.ycursor, self.offsets[self.ycursor.0],
+                    self.yscroll, self.offsets[self.yscroll.0],
+                    self.size))
+        )?;
         Ok((dy as usize).min(lines.len()))
     }
 
@@ -93,6 +108,7 @@ impl WrappedView<'_> {
                 out, &[url], sy, &c.foreground(Color::Magenta),
                 "→ ", "  ", self.ycursor.0 == 0, 0);
         }
+        assert!(index.1 < line.len());
 
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.  We have to do
@@ -120,7 +136,7 @@ impl WrappedView<'_> {
         }
         self.draw_block(out, &v[index.1..], sy, &style, first, later,
                         index.0 == self.ycursor.0,
-                        self.ycursor.1 - index.1)
+                        self.ycursor.1.saturating_sub(index.1))
     }
 
     fn draw(&self) -> Result<()> {
@@ -134,42 +150,62 @@ impl WrappedView<'_> {
 
         // Then draw as many other blocks as will fit
         let mut i = 0;
-        while y < self.size.1.into() && i + 1 < self.doc.0.len() {
+        while y < self.size.1.into() && self.yscroll.0 + i + 1 < self.doc.0.len() {
             i += 1;
-            y += self.draw_line(&mut out, (i, 0), y.try_into().unwrap())?;
+            y += self.draw_line(&mut out, (self.yscroll.0 + i, 0), y.try_into().unwrap())?;
         }
 
         out.flush()?;
         Ok(())
     }
 
-    fn down(&mut self) {
-        // End of block
-        if self.ycursor.1 == self.doc.0[self.ycursor.0].len() - 1 {
-            if self.ycursor.0 == self.doc.0.len() - 1 {
-                // End of doc
+    // Safely increments a block/line index
+    fn increment_index(&self, index: (usize, usize)) -> (usize, usize) {
+        if index.1 == self.doc.0[index.0].len() - 1 {
+            if index.0 == self.doc.0.len() - 1 {
+                index
             } else {
-                self.ycursor.0 += 1;
-                self.ycursor.1 = 0;
+                (index.0 + 1, 0)
             }
         } else {
-            self.ycursor.1 += 1;
+            (index.0, index.1 + 1)
+        }
+    }
+
+    fn cursor_line(&self) -> usize {
+        self.offsets[self.ycursor.0] + self.ycursor.1
+    }
+    fn scroll_line(&self) -> usize {
+        self.offsets[self.yscroll.0] + self.yscroll.1
+    }
+
+    fn down(&mut self) {
+        self.ycursor = self.increment_index(self.ycursor);
+
+        // If we've scrolled off the bottom of the screen, then adjust the
+        // scroll position as well
+        if self.cursor_line() >= self.scroll_line() + self.size.1 as usize - 1
+        {
+            self.yscroll = self.increment_index(self.yscroll);
+        }
+    }
+
+    fn decrement_index(&self, index: (usize, usize)) -> (usize, usize) {
+        if index.1 == 0 {
+            if index.0 == 0 {
+                index
+            } else {
+                (index.0 - 1, self.doc.0[index.0 - 1].len() - 1)
+            }
+        } else {
+            (index.0, index.1 - 1)
         }
     }
 
     fn up(&mut self) {
-        // Beginning of block
-        if self.ycursor.1 == 0 {
-            if self.ycursor.0 == 0 {
-                // Beginning of doc
-            } else {
-                // Previous block
-                self.ycursor.0 -= 1;
-                self.ycursor.1 = self.doc.0[self.ycursor.0].len() - 1;
-            }
-        } else {
-            // Previous line
-            self.ycursor.1 -= 1;
+        self.ycursor = self.decrement_index(self.ycursor);
+        if self.cursor_line() < self.scroll_line() {
+            self.yscroll = self.decrement_index(self.yscroll);
         }
     }
 }
