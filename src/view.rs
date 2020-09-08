@@ -5,7 +5,7 @@ use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
 use crate::fetch::Fetch;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use crossterm::{
     cursor,
     execute,
@@ -31,7 +31,13 @@ impl WrappedView<'_> {
     fn new<'a>(doc: &'a Document, size: (u16, u16), yscroll: (usize, usize))
         -> WrappedView<'a>
     {
-        let doc = doc.word_wrap((size.0 - 1).into());
+        // Add two characters of padding on either side
+        let tw = size.0 - 4;
+        let doc = doc.word_wrap((size.0 - 4).into());
+
+        // Add a status and command bar at the bottom
+        let th = size.1 - 2;
+
         let offsets = doc.0.iter()
             .scan(0, |i, j| {
                 let out = *i;
@@ -39,7 +45,7 @@ impl WrappedView<'_> {
                 Some(out)
             })
             .collect();
-        WrappedView { doc, size, yscroll, ycursor: yscroll, offsets }
+        WrappedView { doc, size: (tw, th), yscroll, ycursor: yscroll, offsets }
     }
 
     // Draws a block of lines starting at a given y position and either
@@ -52,21 +58,22 @@ impl WrappedView<'_> {
                             active_block: bool, active_line: usize)
         -> Result<usize>
     {
-        let dy = self.size.0 - sy; // Max number of lines to draw
+        let dy = self.size.1 - sy; // Max number of lines to draw
         for (i, line) in lines.iter().take(dy as usize).enumerate() {
             if active_block {
                 queue!(out,
                     cursor::MoveTo(0, sy + i as u16),
                     PrintStyledContent(style(" ").on(Color::Black)))?;
                 if i == active_line {
-                    let fill = " ".repeat((self.size.0 - 1).into());
+                    let fill = " ".repeat((self.size.0 + 1).into());
                     queue!(out,
                         PrintStyledContent(style(fill).on(Color::Black)),
-                        cursor::MoveTo(1, sy + i as u16))?;
+                    )?;
                 }
+                queue!(out, cursor::MoveTo(2, sy + i as u16))?;
             } else {
                 queue!(out,
-                    cursor::MoveTo(1, sy + i as u16))?;
+                    cursor::MoveTo(2, sy + i as u16))?;
             }
 
             if active_block && i == active_line {
@@ -82,13 +89,6 @@ impl WrappedView<'_> {
             };
 
         }
-        queue!(out,
-            cursor::MoveTo(0, self.size.1 - 1),
-            Print(format!("{:?} {}, {:?} {}, {:?}",
-                    self.ycursor, self.offsets[self.ycursor.0],
-                    self.yscroll, self.offsets[self.yscroll.0],
-                    self.size))
-        )?;
         Ok((dy as usize).min(lines.len()))
     }
 
@@ -143,7 +143,10 @@ impl WrappedView<'_> {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
 
-        queue!(out, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
+        queue!(out,
+            cursor::MoveTo(self.size.0 + 4, self.size.1 - 1),
+            Clear(ClearType::FromCursorUp),
+        )?;
 
         // Draw the first block, which could be partial
         let mut y = self.draw_line(&mut out, self.yscroll, 0)?;
@@ -184,8 +187,7 @@ impl WrappedView<'_> {
 
         // If we've scrolled off the bottom of the screen, then adjust the
         // scroll position as well
-        if self.cursor_line() >= self.scroll_line() + self.size.1 as usize - 1
-        {
+        if self.cursor_line() >= self.scroll_line() + self.size.1 as usize {
             self.yscroll = self.increment_index(self.yscroll);
         }
     }
@@ -218,8 +220,7 @@ impl Fetch for View {
     fn display(&mut self, doc: &Document) -> Result<()> {
         terminal::enable_raw_mode()?;
         execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
-        let (tw, th) = terminal::size()?;
-        let mut view = WrappedView::new(doc, (tw, th), (0, 0));
+        let mut view = WrappedView::new(doc, terminal::size()?, (2, 0));
         view.draw()?;
         loop {
             // `read()` blocks until an `Event` is available
@@ -268,7 +269,15 @@ impl Fetch for View {
     }
 
     fn header(&mut self, header: &ResponseHeader) -> Result<()> {
-        println!("Got header: {:?}", header);
-        Err(anyhow!("No header implementation yet"))
+        let (_, th) = terminal::size()?;
+        let mut out = std::io::stdout();
+        let s = format!(" {:?}: {} ", header.status, header.meta);
+        queue!(out,
+            cursor::MoveTo(0, th - 2),
+            terminal::Clear(ClearType::FromCursorDown),
+            PrintStyledContent(style(s).with(Color::Black).on(Color::Blue)),
+        )?;
+        out.flush()?;
+        Ok(())
     }
 }

@@ -37,7 +37,7 @@ impl Document<'_> {
             },
             Pre { text, alt } => Pre {
                 text: text.clone(),
-                alt: alt.clone(),
+                alt: *alt,
             },
             H1(t) => H1(wrap(t, 2)), // "# "
             H2(t) => H2(wrap(t, 3)), // "## "

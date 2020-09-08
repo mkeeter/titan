@@ -79,7 +79,8 @@ fn fetch_<F: Fetch>(target: &str, config: Arc<rustls::ClientConfig>,
             return fetch_(url.as_str(), config, cb, depth + 1);
         },
         // Only read the response body if we got a Success response status
-        Success =>
+        Success => {
+            cb.header(&header)?;
             if header.meta.starts_with("text/gemini") {
                 let body = std::str::from_utf8(body)?;
                 let (_, doc) = parse_text_gemini(body).map_err(
@@ -92,7 +93,8 @@ fn fetch_<F: Fetch>(target: &str, config: Arc<rustls::ClientConfig>,
                 cb.display(&Document(vec![text]))?;
             } else {
                 return Err(anyhow!("Unknown meta: {}", header.meta));
-            },
+            }
+        },
 
         // Otherwise, invoke the header cb
         _ => { cb.header(&header)?; }
