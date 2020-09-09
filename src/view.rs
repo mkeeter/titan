@@ -23,18 +23,19 @@ struct WrappedView<'a> {
     size: (u16, u16), // width, height
     yscroll: (usize, usize), // Y scoll position in the doc (block, line)
     ycursor: (usize, usize), // Y cursor position in the doc (block, line)
+    source: &'a Document<'a>,
     doc: WrappedDocument<'a>,
     offsets: Vec<usize>, // cumsum of lines in doc.0
     needs_redraw: bool,
 }
 
 impl WrappedView<'_> {
-    fn new<'a>(doc: &'a Document, size: (u16, u16), yscroll: (usize, usize))
-        -> WrappedView<'a>
+    fn new<'a>(source: &'a Document, size: (u16, u16),
+               yscroll: usize, ycursor: usize) -> WrappedView<'a>
     {
         // Add two characters of padding on either side
         let tw = size.0 - 4;
-        let doc = doc.word_wrap((size.0 - 4).into());
+        let doc = source.word_wrap((size.0 - 4).into());
 
         // Add a status and command bar at the bottom
         let th = size.1 - 2;
@@ -46,9 +47,10 @@ impl WrappedView<'_> {
                 Some(out)
             })
             .collect();
-        WrappedView { doc, yscroll, offsets,
+        WrappedView { doc, offsets, source,
             size: (tw, th),
-            ycursor: yscroll,
+            ycursor: (ycursor, 0),
+            yscroll: (yscroll, 0),
             needs_redraw: true}
     }
 
@@ -244,7 +246,10 @@ impl View {
                     _ => (),
                 }
             },
-            _ => (),
+            Event::Resize(w, h) => {
+                *view = WrappedView::new(view.source, (w, h),
+                                         view.yscroll.0, view.ycursor.0);
+            },
         }
         Ok(true)
     }
@@ -258,7 +263,7 @@ impl Fetch for View {
     fn display(&mut self, doc: &Document) -> Result<()> {
         terminal::enable_raw_mode()?;
         execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
-        let mut view = WrappedView::new(doc, terminal::size()?, (2, 0));
+        let mut view = WrappedView::new(doc, terminal::size()?, 0, 0);
         view.draw()?;
 
         loop {
