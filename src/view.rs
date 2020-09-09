@@ -25,6 +25,7 @@ struct WrappedView<'a> {
     ycursor: (usize, usize), // Y cursor position in the doc (block, line)
     doc: WrappedDocument<'a>,
     offsets: Vec<usize>, // cumsum of lines in doc.0
+    needs_redraw: bool,
 }
 
 impl WrappedView<'_> {
@@ -45,7 +46,10 @@ impl WrappedView<'_> {
                 Some(out)
             })
             .collect();
-        WrappedView { doc, size: (tw, th), yscroll, ycursor: yscroll, offsets }
+        WrappedView { doc, yscroll, offsets,
+            size: (tw, th),
+            ycursor: yscroll,
+            needs_redraw: true}
     }
 
     // Draws a block of lines starting at a given y position and either
@@ -183,6 +187,7 @@ impl WrappedView<'_> {
     }
 
     fn down(&mut self) {
+        let prev = (self.ycursor, self.yscroll);
         self.ycursor = self.increment_index(self.ycursor);
 
         // If we've scrolled off the bottom of the screen, then adjust the
@@ -190,6 +195,7 @@ impl WrappedView<'_> {
         if self.cursor_line() >= self.scroll_line() + self.size.1 as usize {
             self.yscroll = self.increment_index(self.yscroll);
         }
+        self.needs_redraw = prev != (self.ycursor, self.yscroll);
     }
 
     fn decrement_index(&self, index: (usize, usize)) -> (usize, usize) {
@@ -205,10 +211,42 @@ impl WrappedView<'_> {
     }
 
     fn up(&mut self) {
+        let prev = (self.ycursor, self.yscroll);
         self.ycursor = self.decrement_index(self.ycursor);
         if self.cursor_line() < self.scroll_line() {
             self.yscroll = self.decrement_index(self.yscroll);
         }
+        self.needs_redraw = prev != (self.ycursor, self.yscroll);
+    }
+}
+
+impl View {
+    fn event(&mut self, evt: Event, view: &mut WrappedView) -> Result<bool> {
+        match evt {
+            Event::Key(event) => {
+                match event.code {
+                    KeyCode::Char('q') => { return Ok(false); }
+                    KeyCode::Char('j') => view.down(),
+                    KeyCode::Char('k') => view.up(),
+                    KeyCode::Char('c') =>
+                        // Quit on Control-C, even though it's not
+                        // actually coming through as an interrupt.
+                        if event.modifiers == KeyModifiers::CONTROL {
+                            return Ok(false);
+                        }
+                    _ => (),
+                }
+            },
+            Event::Mouse(event) => {
+                match event {
+                    MouseEvent::ScrollUp(..) => view.up(),
+                    MouseEvent::ScrollDown(..) => view.down(),
+                    _ => (),
+                }
+            },
+            _ => (),
+        }
+        Ok(true)
     }
 }
 
@@ -222,44 +260,15 @@ impl Fetch for View {
         execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
         let mut view = WrappedView::new(doc, terminal::size()?, (2, 0));
         view.draw()?;
+
         loop {
-            // `read()` blocks until an `Event` is available
             let evt = read()?;
-            match evt {
-                Event::Key(event) => {
-                    match event.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Char('j') => {
-                            view.down();
-                            view.draw()?;
-                        },
-                        KeyCode::Char('k') => {
-                            view.up();
-                            view.draw()?;
-                        },
-                        KeyCode::Char('c') =>
-                            // Quit on Control-C, even though it's not
-                            // actually coming through as an interrupt.
-                            if event.modifiers == KeyModifiers::CONTROL {
-                                break;
-                            },
-                        _ => (),
-                    }
-                },
-                Event::Mouse(event) => {
-                    match event {
-                        MouseEvent::ScrollUp(..) => {
-                            view.up();
-                            view.draw()?;
-                        },
-                        MouseEvent::ScrollDown(..) => {
-                            view.down();
-                            view.draw()?;
-                        },
-                        _ => (),
-                    }
-                },
-                _ => (),
+            if !self.event(evt, &mut view)? {
+                break;
+            }
+            if view.needs_redraw {
+                view.draw()?;
+                view.needs_redraw = false;
             }
         }
         execute!(std::io::stdout(), cursor::Show,
