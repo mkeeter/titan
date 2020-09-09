@@ -89,7 +89,7 @@ fn fetch_<F: Fetch>(target: &str, config: Arc<rustls::ClientConfig>,
             } else if header.meta.starts_with("text/") {
                 // Read other text/ MIME types as a single preformatted line
                 let body = std::str::from_utf8(body)?;
-                let text = Line::Pre { alt: None, text: body.split('\n').collect() };
+                let text = Line::Pre { alt: None, text: body };
                 cb.display(&Document(vec![text]))?;
             } else {
                 return Err(anyhow!("Unknown meta: {}", header.meta));

@@ -4,51 +4,58 @@ use crate::protocol::{Line, Line_};
 #[derive(Debug, Eq, PartialEq)]
 pub struct Document<'a>(pub Vec<Line<'a>>);
 
-pub type WrappedLine<'a> = Line_<'a, Vec<&'a str>>;
+// A WrappedLine encodes a string and a flag marking whether it's the first
+// in its block.
+pub type WrappedLine<'a> = Line_<'a, (&'a str, bool)>;
 #[derive(Debug, Eq, PartialEq)]
 pub struct WrappedDocument<'a>(pub Vec<WrappedLine<'a>>);
 
 impl Document<'_> {
-    fn line_wrap<'a>(line: &'a Line, width: usize) -> WrappedLine<'a> {
+    fn wrap<'a, F>(s: &'a str, width: usize, f: F) -> Vec<WrappedLine<'a>>
+        where F: FnMut((&'a str, bool)) -> WrappedLine<'a>
+    {
+        let mut t: Vec<WrappedLine<'a>> = textwrap::Wrapper::new(width)
+            .wrap(s)
+            .into_iter()
+            .map(|b: Cow<'a, str>|
+                if let Cow::Borrowed(c) = b {
+                    c
+                } else {
+                    panic!("Got unexpected owned Pre line");
+                })
+            .zip(std::iter::once(true).chain(std::iter::repeat(false)))
+            .map(f)
+            .collect();
+
+        if t.is_empty() {
+            t.push(f(("", true)));
+        }
+        t
+    }
+
+    fn line_wrap<'a>(line: &'a Line, width: usize) -> Vec<WrappedLine<'a>> {
         use Line_::*;
-        let wrap = |s: &'a str, i: usize| -> Vec<&'a str> {
-            let mut t: Vec<&'a str> = textwrap::Wrapper::new(width - i).wrap(s)
-                .into_iter()
-                .map(|b: Cow<'a, str>|
-                    if let Cow::Borrowed(c) = b {
-                        c
-                    } else {
-                        panic!("Got unexpected owned Pre line");
-                    })
-                .collect();
-
-            if t.is_empty() {
-                t.push("");
-            }
-            t
-        };
-
         match line {
-            Text(t) => Text(wrap(t, 0)),
-            BareLink(url) => BareLink(url),
-            NamedLink { name, url } => NamedLink {
-                url,
-                name: wrap(name, 3) // "=> "
-            },
-            Pre { text, alt } => Pre {
-                text: text.clone(),
-                alt: *alt,
-            },
-            H1(t) => H1(wrap(t, 2)), // "# "
-            H2(t) => H2(wrap(t, 3)), // "## "
-            H3(t) => H3(wrap(t, 4)), // "### "
-            List(t) => List(wrap(t, 2)), // "* "
-            Quote(t) => Quote(wrap(t, 2)), // "> "
+            Text(t) => Self::wrap(t, width, Text),
+            BareLink(url) => vec![BareLink(url)],
+            NamedLink { name, url } => Self::wrap(name, width - 3, |s|
+                NamedLink { url, name: s }),
+            Pre { text, alt } => text.split("\n")
+                .into_iter()
+                .zip(std::iter::once(true).chain(std::iter::repeat(false)))
+                .map(|(s, i)| Pre { text: (s, i), alt: *alt })
+                .collect(),
+            H1(t) => Self::wrap(t, width - 2, H1), // "# "
+            H2(t) => Self::wrap(t, width - 3, H2), // "## "
+            H3(t) => Self::wrap(t, width - 4, H3), // "### "
+            List(t) => Self::wrap(t, width - 2, List), // "* "
+            Quote(t) => Self::wrap(t, width - 2, Quote), // "> "
         }
     }
     pub fn word_wrap(&self, width: usize) -> WrappedDocument {
         WrappedDocument(self.0.iter()
             .map(|line| Self::line_wrap(line, width))
+            .flatten()
             .collect()
         )
     }

@@ -7,11 +7,10 @@ use crate::document::Document;
 use nom::{
     IResult,
     branch::alt,
-    bytes::complete::{is_not, tag, take_while_m_n, take_till},
+    bytes::complete::{is_not, tag, take_while_m_n, take_until, take_till},
     character::{is_digit},
     character::complete::space0,
     combinator::map_res,
-    multi::many_till,
     sequence::{terminated, tuple},
 };
 
@@ -95,7 +94,7 @@ fn parse_pre(input: &str) -> IResult<&str, Line> {
     } else {
         Some(alt)
     };
-    let (input, (text, _)) = many_till(read_line, tag("```"))(input)?;
+    let (input, text) = take_until("```")(input)?;
     read_line(input)?;
 
     Ok((input, Line::Pre { alt, text }))

@@ -62,24 +62,12 @@ pub enum Line_<'a, T> {
     Text(T),
     BareLink(&'a str),
     NamedLink { url: &'a str, name: T },
-    Pre { alt: Option<&'a str>, text: Vec<&'a str> },
+    Pre { alt: Option<&'a str>, text: T },
     H1(T),
     H2(T),
     H3(T),
     List(T),
     Quote(T),
-}
-
-impl<'a, T> Line_<'a, Vec<T>> {
-    pub fn len(&self) -> usize {
-        use Line_::*;
-        match self {
-            Text(t) | H1(t) | H2(t) | H3(t) | List(t) | Quote(t) => t.len(),
-            NamedLink {name, .. } => name.len(),
-            BareLink(..)  => 1,
-            Pre { text, ..} => text.len(),
-        }
-    }
 }
 
 pub type Line<'a> = Line_<'a, &'a str>;
