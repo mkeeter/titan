@@ -75,7 +75,7 @@ impl WrappedView<'_> {
         };
 
         if highlight {
-            let c = c.background(Color::White);
+            let c = c.background(Color::Black);
             let fill = " ".repeat((self.size.0 + 1).into());
             queue!(out,
                 cursor::MoveTo(0, sy),
