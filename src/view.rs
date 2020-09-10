@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::io::{Write};
 
-use crate::document::{Document, WrappedDocument, WrappedLine};
+use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
 use crate::fetch::Fetch;
 
@@ -66,35 +66,38 @@ impl WrappedView<'_> {
         self.needs_redraw = true;
     }
 
-    // Draws a line at the given index, starting at screen y pos sy
-    fn draw_line<'a, W: Write>(&self, out: &mut W, line: &WrappedLine<'a>, highlight: bool, sy: u16)
-            -> Result<()>
+    fn prefix<'a>(p: (&'a str, bool), first: &'static str, later: &'static str)
+        -> (&'a str, &'static str)
     {
-        use Line_::*;
-        let c = ContentStyle::new();
+        (p.0, if p.1 { first } else { later })
+    }
 
+    fn draw_line<W: Write>(&self, out: &mut W, index: usize) -> Result<()> {
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.
-        let (v, q, first, later, c) = match line {
-            Text(t) => (t.0, t.1, "", "", c),
-            NamedLink { name, .. } => (name.0, name.1, "→ ", "  ", c.foreground(Color::Magenta)),
-            H1(t) => (t.0, t.1, "# ", "  ", c.foreground(Color::DarkRed)),
-            H2(t) => (t.0, t.1, "## ", "   ", c.foreground(Color::DarkYellow)),
-            H3(t) => (t.0, t.1, "### ", "    ", c.foreground(Color::DarkCyan)),
-            List(t) => (t.0, t.1, "• ", "  ", c),
-            Quote(t) => (t.0, t.1, "> ", "> ", c.foreground(Color::White)),
+        let p = Self::prefix;
+
+        use Line_::*;
+        let c = ContentStyle::new();
+        let ((text, prefix), c) = match self.doc.0[index] {
+            Text(t) => ((t.0, ""), c),
+            H1(t) => (p(t, "# ", "  "), c.foreground(Color::DarkRed)),
+            H2(t) => (p(t, "## ", "   "), c.foreground(Color::DarkYellow)),
+            H3(t) => (p(t, "### ", "    "), c.foreground(Color::DarkCyan)),
+            List(t) => (p(t, "• ", "  "), c),
+            Quote(t) => ((t.0, "> "), c.foreground(Color::White)),
+            NamedLink { name, .. } => (p(name, "→ ", "  "),
+                                       c.foreground(Color::Magenta)),
 
             // TODO: handle overly long Pre and BareLink lines
-            BareLink(url) => (*url, true, "→ ", "  ", c.foreground(Color::Magenta)),
-            Pre { text, .. } => (text.0, text.1, "", "", c.foreground(Color::Red)),
-        };
-        let prefix = if q {
-            first
-        } else {
-            later
+            BareLink(url) => ((url, "→ "), c.foreground(Color::Magenta)),
+            Pre { text, .. } => ((text.0, ""), c.foreground(Color::Red)),
         };
 
-        if highlight {
+        let sy = (index - self.yscroll).try_into().unwrap();
+        assert!(sy < self.size.1.into());
+
+        if index == self.ycursor {
             let c = c.background(Color::Black);
             let fill = " ".repeat((self.size.0 + 1).into());
             queue!(out,
@@ -102,12 +105,13 @@ impl WrappedView<'_> {
                 PrintStyledContent(style(fill).on(Color::Black)),
                 cursor::MoveTo(2, sy),
                 PrintStyledContent(style(prefix).on(Color::Black)),
-                PrintStyledContent(c.apply(v)))?;
+                PrintStyledContent(c.apply(text)),
+            )?;
         } else {
             queue!(out,
                 cursor::MoveTo(2, sy),
                 Print(prefix),
-                PrintStyledContent(c.apply(v)),
+                PrintStyledContent(c.apply(text)),
             )?;
         }
         Ok(())
@@ -122,21 +126,18 @@ impl WrappedView<'_> {
             Clear(ClearType::FromCursorUp),
         )?;
 
-        use std::iter::{repeat, once};
-        for (sy, (line, active)) in (0..self.size.1)
-            .zip(self.doc.0[self.yscroll..].iter()
-                .zip(repeat(false)
-                    .take(self.ycursor - self.yscroll)
-                    .chain(once(true))
-                    .chain(repeat(false)))) {
-            self.draw_line(&mut out, line, active, sy.try_into().unwrap())?;
+        for i in (0..self.size.1)
+            .map(|i| i as usize + self.yscroll)
+            .take_while(|i| *i < self.doc.0.len())
+        {
+            self.draw_line(&mut out, i)?;
         }
 
         out.flush()?;
         Ok(())
     }
 
-    // Safely increments a block/line index
+    // Safely increments a line index
     fn increment_index(&self, index: usize) -> usize {
         self.doc.0.len().min(index + 1)
     }
