@@ -11,9 +11,10 @@ pub type WrappedLine<'a> = Line_<'a, (&'a str, bool)>;
 pub struct WrappedDocument<'a>(pub Vec<WrappedLine<'a>>);
 
 impl Document<'_> {
-    fn wrap<'a, F>(s: &'a str, width: usize, f: F) -> Vec<WrappedLine<'a>>
+    fn wrap<'a, F>(s: &'a str, width: usize, mut f: F) -> Vec<WrappedLine<'a>>
         where F: FnMut((&'a str, bool)) -> WrappedLine<'a>
     {
+        let default = f(("", true));
         let mut t: Vec<WrappedLine<'a>> = textwrap::Wrapper::new(width)
             .wrap(s)
             .into_iter()
@@ -28,7 +29,7 @@ impl Document<'_> {
             .collect();
 
         if t.is_empty() {
-            t.push(f(("", true)));
+            t.push(default);
         }
         t
     }

@@ -20,12 +20,13 @@ use crossterm::{
 pub struct View { }
 
 struct WrappedView<'a> {
-    size: (u16, u16), // width, height
-    yscroll: (usize, usize), // Y scoll position in the doc (block, line)
-    ycursor: (usize, usize), // Y cursor position in the doc (block, line)
     source: &'a Document<'a>,
     doc: WrappedDocument<'a>,
-    offsets: Vec<usize>, // cumsum of lines in doc.0
+
+    size: (u16, u16), // width, height
+
+    yscroll: usize, // Y scoll position in the doc
+    ycursor: usize, // Y cursor position in the doc
     needs_redraw: bool,
 }
 
@@ -40,109 +41,57 @@ impl WrappedView<'_> {
         // Add a status and command bar at the bottom
         let th = size.1 - 2;
 
-        let offsets = doc.0.iter()
-            .scan(0, |i, j| {
-                let out = *i;
-                *i += j.len();
-                Some(out)
-            })
-            .collect();
-        WrappedView { doc, offsets, source,
+        WrappedView { doc, source, ycursor, yscroll,
             size: (tw, th),
-            ycursor: (ycursor, 0),
-            yscroll: (yscroll, 0),
             needs_redraw: true}
     }
 
-    // Draws a block of lines starting at a given y position and either
-    // filling the screen or finishing the block.
-    //
-    // Returns the number of lines that has been output
-    fn draw_block<W: Write>(&self, out: &mut W, lines: &[&str], sy: u16,
-                            color: &ContentStyle,
-                            first: &str, later: &str,
-                            active_block: bool, active_line: usize)
-        -> Result<usize>
-    {
-        let dy = self.size.1 - sy; // Max number of lines to draw
-        for (i, line) in lines.iter().take(dy as usize).enumerate() {
-            if active_block {
-                queue!(out,
-                    cursor::MoveTo(0, sy + i as u16),
-                    PrintStyledContent(style(" ").on(Color::Black)))?;
-                if i == active_line {
-                    let fill = " ".repeat((self.size.0 + 1).into());
-                    queue!(out,
-                        PrintStyledContent(style(fill).on(Color::Black)),
-                    )?;
-                }
-                queue!(out, cursor::MoveTo(2, sy + i as u16))?;
-            } else {
-                queue!(out,
-                    cursor::MoveTo(2, sy + i as u16))?;
-            }
-
-            if active_block && i == active_line {
-                let color = color.clone().background(Color::Black);
-                queue!(out,
-                    PrintStyledContent(color.clone().apply(
-                            if i == 0 { first } else { later })),
-                    PrintStyledContent(color.apply(line)))?;
-            } else {
-                queue!(out,
-                    Print(if i == 0 { first } else { later }),
-                    PrintStyledContent(color.clone().apply(line)))?;
-            };
-
-        }
-        Ok((dy as usize).min(lines.len()))
-    }
-
-    // Draws the block slice at the given index, starting at screen y pos sy
-    fn draw_line<W: Write>(&self, out: &mut W, index: (usize, usize), sy: u16)
-            -> Result<usize>
+    // Draws a line at the given index, starting at screen y pos sy
+    fn draw_line<W: Write>(&self, out: &mut W, index: usize, sy: u16)
+            -> Result<()>
     {
         use Line_::*;
         let c = ContentStyle::new();
 
-        // Special-case for URLs without alt text, which are drawn on
-        // a single line.  TODO: handle overly long lines here.
-        let line = &self.doc.0[index.0];
-        if let BareLink(url) = line {
-            assert!(index.1 == 0);
-            return self.draw_block(
-                out, &[url], sy, &c.foreground(Color::Magenta),
-                "→ ", "  ", self.ycursor.0 == 0, 0);
-        }
-        assert!(index.1 < line.len());
-
         // We trust that the line-wrapping has wrapped things like quotes and
-        // links so that there's room for their prefixes here.  We have to do
-        // a little persuasion here to convince the type system to accept our
-        // styling functions
-        let (v, mut first, later, style) = match line {
-            Text(t) => (t, "", "", c),
-            NamedLink { name, .. } => (name, "→ ", "  ", c.foreground(Color::Magenta)),
-            H1(t) => (t, "# ", "  ", c.foreground(Color::DarkRed)),
-            H2(t) => (t, "## ", "   ", c.foreground(Color::DarkYellow)),
-            H3(t) => (t, "### ", "    ", c.foreground(Color::DarkCyan)),
-            List(t) => (t, "• ", "  ", c),
-            Quote(t) => (t, "> ", "> ", c.foreground(Color::White)),
+        // links so that there's room for their prefixes here.
+        let line = &self.doc.0[index];
+        let (v, q, first, later, c) = match line {
+            Text(t) => (t.0, t.1, "", "", c),
+            NamedLink { name, .. } => (name.0, name.1, "→ ", "  ", c.foreground(Color::Magenta)),
+            H1(t) => (t.0, t.1, "# ", "  ", c.foreground(Color::DarkRed)),
+            H2(t) => (t.0, t.1, "## ", "   ", c.foreground(Color::DarkYellow)),
+            H3(t) => (t.0, t.1, "### ", "    ", c.foreground(Color::DarkCyan)),
+            List(t) => (t.0, t.1, "• ", "  ", c),
+            Quote(t) => (t.0, t.1, "> ", "> ", c.foreground(Color::White)),
 
-            // TODO: handle overly long Pre lines
-            Pre { text, .. } => (text, "", "", c.foreground(Color::Red)),
-
-            _ => unreachable!(),
+            // TODO: handle overly long Pre and BareLink lines
+            BareLink(url) => (*url, true, "→ ", "  ", c.foreground(Color::Magenta)),
+            Pre { text, .. } => (text.0, text.1, "", "", c.foreground(Color::Red)),
+        };
+        let prefix = if q {
+            first
+        } else {
+            later
         };
 
-        // If this is a partial slice, then don't draw first-line-only
-        // text decoration (e.g. "→" for links)
-        if index.1 > 0 {
-            first = later;
+        if index == self.ycursor {
+            let c = c.background(Color::White);
+            let fill = " ".repeat((self.size.0 + 1).into());
+            queue!(out,
+                cursor::MoveTo(0, sy),
+                PrintStyledContent(style(fill).on(Color::Black)),
+                cursor::MoveTo(2, sy),
+                PrintStyledContent(style(prefix).on(Color::Black)),
+                PrintStyledContent(c.apply(v)))?;
+        } else {
+            queue!(out,
+                cursor::MoveTo(2, sy),
+                Print(prefix),
+                PrintStyledContent(c.apply(v)),
+            )?;
         }
-        self.draw_block(out, &v[index.1..], sy, &style, first, later,
-                        index.0 == self.ycursor.0,
-                        self.ycursor.1.saturating_sub(index.1))
+        Ok(())
     }
 
     fn draw(&self) -> Result<()> {
@@ -154,14 +103,8 @@ impl WrappedView<'_> {
             Clear(ClearType::FromCursorUp),
         )?;
 
-        // Draw the first block, which could be partial
-        let mut y = self.draw_line(&mut out, self.yscroll, 0)?;
-
-        // Then draw as many other blocks as will fit
-        let mut i = 0;
-        while y < self.size.1.into() && self.yscroll.0 + i + 1 < self.doc.0.len() {
-            i += 1;
-            y += self.draw_line(&mut out, (self.yscroll.0 + i, 0), y.try_into().unwrap())?;
+        for sy in (0..self.size.1).take(self.doc.0[self.yscroll..].len()) {
+            self.draw_line(&mut out, self.yscroll + sy as usize, sy.try_into().unwrap())?;
         }
 
         out.flush()?;
@@ -169,23 +112,8 @@ impl WrappedView<'_> {
     }
 
     // Safely increments a block/line index
-    fn increment_index(&self, index: (usize, usize)) -> (usize, usize) {
-        if index.1 == self.doc.0[index.0].len() - 1 {
-            if index.0 == self.doc.0.len() - 1 {
-                index
-            } else {
-                (index.0 + 1, 0)
-            }
-        } else {
-            (index.0, index.1 + 1)
-        }
-    }
-
-    fn cursor_line(&self) -> usize {
-        self.offsets[self.ycursor.0] + self.ycursor.1
-    }
-    fn scroll_line(&self) -> usize {
-        self.offsets[self.yscroll.0] + self.yscroll.1
+    fn increment_index(&self, index: usize) -> usize {
+        self.doc.0.len().min(index + 1)
     }
 
     fn down(&mut self) {
@@ -194,28 +122,20 @@ impl WrappedView<'_> {
 
         // If we've scrolled off the bottom of the screen, then adjust the
         // scroll position as well
-        if self.cursor_line() >= self.scroll_line() + self.size.1 as usize {
+        if self.ycursor >= self.yscroll + self.size.1 as usize {
             self.yscroll = self.increment_index(self.yscroll);
         }
         self.needs_redraw = prev != (self.ycursor, self.yscroll);
     }
 
-    fn decrement_index(&self, index: (usize, usize)) -> (usize, usize) {
-        if index.1 == 0 {
-            if index.0 == 0 {
-                index
-            } else {
-                (index.0 - 1, self.doc.0[index.0 - 1].len() - 1)
-            }
-        } else {
-            (index.0, index.1 - 1)
-        }
+    fn decrement_index(&self, index: usize) -> usize {
+        index.saturating_sub(1)
     }
 
     fn up(&mut self) {
         let prev = (self.ycursor, self.yscroll);
         self.ycursor = self.decrement_index(self.ycursor);
-        if self.cursor_line() < self.scroll_line() {
+        if self.ycursor < self.yscroll {
             self.yscroll = self.decrement_index(self.yscroll);
         }
         self.needs_redraw = prev != (self.ycursor, self.yscroll);
@@ -248,7 +168,7 @@ impl View {
             },
             Event::Resize(w, h) => {
                 *view = WrappedView::new(view.source, (w, h),
-                                         view.yscroll.0, view.ycursor.0);
+                                         view.yscroll, view.ycursor);
             },
         }
         Ok(true)
