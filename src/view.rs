@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::io::{Write};
 
-use crate::document::{Document, WrappedDocument};
+use crate::document::{Document, WrappedDocument, WrappedLine};
 use crate::protocol::{ResponseHeader, Line_};
 use crate::fetch::Fetch;
 
@@ -47,7 +47,7 @@ impl WrappedView<'_> {
     }
 
     // Draws a line at the given index, starting at screen y pos sy
-    fn draw_line<W: Write>(&self, out: &mut W, index: usize, sy: u16)
+    fn draw_line<'a, W: Write>(&self, out: &mut W, line: &WrappedLine<'a>, highlight: bool, sy: u16)
             -> Result<()>
     {
         use Line_::*;
@@ -55,7 +55,6 @@ impl WrappedView<'_> {
 
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.
-        let line = &self.doc.0[index];
         let (v, q, first, later, c) = match line {
             Text(t) => (t.0, t.1, "", "", c),
             NamedLink { name, .. } => (name.0, name.1, "→ ", "  ", c.foreground(Color::Magenta)),
@@ -75,7 +74,7 @@ impl WrappedView<'_> {
             later
         };
 
-        if index == self.ycursor {
+        if highlight {
             let c = c.background(Color::White);
             let fill = " ".repeat((self.size.0 + 1).into());
             queue!(out,
@@ -103,8 +102,14 @@ impl WrappedView<'_> {
             Clear(ClearType::FromCursorUp),
         )?;
 
-        for sy in (0..self.size.1).take(self.doc.0[self.yscroll..].len()) {
-            self.draw_line(&mut out, self.yscroll + sy as usize, sy.try_into().unwrap())?;
+        use std::iter::{repeat, once};
+        for (sy, (line, active)) in (0..self.size.1)
+            .zip(self.doc.0[self.yscroll..].iter()
+                .zip(repeat(false)
+                    .take(self.ycursor - self.yscroll)
+                    .chain(once(true))
+                    .chain(repeat(false)))) {
+            self.draw_line(&mut out, line, active, sy.try_into().unwrap())?;
         }
 
         out.flush()?;
