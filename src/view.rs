@@ -46,6 +46,26 @@ impl WrappedView<'_> {
             needs_redraw: true}
     }
 
+    fn resize(&mut self, size: (u16, u16)) {
+        // Attempt to maintain roughly the same scroll and cursor position
+        // after resizing is complete
+        let yscroll_frac = self.yscroll as f32 / self.doc.0.len() as f32;
+        let ycursor_frac = self.ycursor as f32 / self.doc.0.len() as f32;
+
+        self.doc = self.source.word_wrap((size.0 - 4).into());
+        self.size = (size.0 - 4, size.1 - 2);
+
+        let dl = self.doc.0.len();
+        self.ycursor = ((ycursor_frac * dl as f32) as usize)
+            .max(0)
+            .min(dl)
+            .min((self.yscroll + self.size.1 as usize).saturating_sub(1));
+        self.yscroll = ((yscroll_frac * dl as f32) as usize).max(0)
+            .min(dl);
+
+        self.needs_redraw = true;
+    }
+
     // Draws a line at the given index, starting at screen y pos sy
     fn draw_line<'a, W: Write>(&self, out: &mut W, line: &WrappedLine<'a>, highlight: bool, sy: u16)
             -> Result<()>
@@ -172,8 +192,7 @@ impl View {
                 }
             },
             Event::Resize(w, h) => {
-                *view = WrappedView::new(view.source, (w, h),
-                                         view.yscroll, view.ycursor);
+                view.resize((w, h));
             },
         }
         Ok(true)
