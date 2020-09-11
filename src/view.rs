@@ -245,8 +245,11 @@ impl Fetch for View {
                 break;
             }
         }
-        execute!(std::io::stdout(), cursor::Show,
-                 event::DisableMouseCapture)?;
+        execute!(std::io::stdout(),
+            cursor::Show,
+            event::DisableMouseCapture,
+            terminal::Clear(ClearType::All),
+        )?;
         terminal::disable_raw_mode()?;
         Ok(())
     }
