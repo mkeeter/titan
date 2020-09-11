@@ -96,7 +96,7 @@ impl WrappedView<'_> {
         };
 
         let sy = (index - self.yscroll).try_into().unwrap();
-        assert!(sy < self.size.1.into());
+        assert!(sy < self.size.1);
 
         if index == self.ycursor {
             let c = c.background(Color::Black);

@@ -41,8 +41,7 @@ impl Document<'_> {
             BareLink(url) => vec![BareLink(url)],
             NamedLink { name, url } => Self::wrap(name, width - 3, |s|
                 NamedLink { url, name: s }),
-            Pre { text, alt } => text.split("\n")
-                .into_iter()
+            Pre { text, alt } => text.split('\n')
                 .zip(std::iter::once(true).chain(std::iter::repeat(false)))
                 .map(|(s, i)| Pre { text: (s, i), alt: *alt })
                 .collect(),
