@@ -27,7 +27,6 @@ struct WrappedView<'a> {
 
     yscroll: usize, // Y scoll position in the doc
     ycursor: usize, // Y cursor position in the doc
-    needs_redraw: bool,
 }
 
 impl WrappedView<'_> {
@@ -43,10 +42,10 @@ impl WrappedView<'_> {
 
         WrappedView { doc, source, ycursor, yscroll,
             size: (tw, th),
-            needs_redraw: true}
+        }
     }
 
-    fn resize(&mut self, size: (u16, u16)) {
+    fn resize(&mut self, size: (u16, u16)) -> Result<()> {
         // Attempt to maintain roughly the same scroll and cursor position
         // after resizing is complete
         let yscroll_frac = self.yscroll as f32 / self.doc.0.len() as f32;
@@ -63,9 +62,11 @@ impl WrappedView<'_> {
         self.yscroll = ((yscroll_frac * dl as f32) as usize).max(0)
             .min(dl);
 
-        self.needs_redraw = true;
+        self.draw()
     }
 
+    // Calculates the text and prefix for a given line, which is given as its
+    // text and a boolean indicating whether it's the first in its block.
     fn prefix<'a>(p: (&'a str, bool), first: &'static str, later: &'static str)
         -> (&'a str, &'static str)
     {
@@ -142,8 +143,34 @@ impl WrappedView<'_> {
         self.doc.0.len().min(index + 1)
     }
 
-    fn down(&mut self) {
-        let prev = (self.ycursor, self.yscroll);
+    // Selectively repaints based on whether scroll or cursor position has
+    // changed.  If only cursor position changed, then redraws the relevant
+    // lines to minimize flickering.
+    fn repaint(&mut self, cursor: usize, scroll: usize) -> Result<()> {
+        if scroll != self.yscroll {
+            // If the scroll position has changed, then we need to queue up
+            // a full redraw of the whole screen.
+            self.draw()?;
+        } else if cursor != self.ycursor {
+            // Otherwise, we only need to handle the lines near the cursor
+            let mut out = std::io::stdout();
+
+            for i in &[cursor, self.ycursor] {
+                let sy = (*i - self.yscroll).try_into().unwrap();
+                queue!(&mut out,
+                    cursor::MoveTo(0, sy),
+                    Clear(ClearType::CurrentLine),
+                )?;
+                self.draw_line(&mut out, *i)?;
+            }
+            out.flush()?;
+        }
+        Ok(())
+    }
+
+    fn down(&mut self) -> Result<()> {
+        let prev_cursor = self.ycursor;
+        let prev_scroll = self.yscroll;
         self.ycursor = self.increment_index(self.ycursor);
 
         // If we've scrolled off the bottom of the screen, then adjust the
@@ -151,20 +178,21 @@ impl WrappedView<'_> {
         if self.ycursor >= self.yscroll + self.size.1 as usize {
             self.yscroll = self.increment_index(self.yscroll);
         }
-        self.needs_redraw = prev != (self.ycursor, self.yscroll);
+        self.repaint(prev_cursor, prev_scroll)
     }
 
     fn decrement_index(&self, index: usize) -> usize {
         index.saturating_sub(1)
     }
 
-    fn up(&mut self) {
-        let prev = (self.ycursor, self.yscroll);
+    fn up(&mut self) -> Result<()> {
+        let prev_cursor = self.ycursor;
+        let prev_scroll = self.yscroll;
         self.ycursor = self.decrement_index(self.ycursor);
         if self.ycursor < self.yscroll {
             self.yscroll = self.decrement_index(self.yscroll);
         }
-        self.needs_redraw = prev != (self.ycursor, self.yscroll);
+        self.repaint(prev_cursor, prev_scroll)
     }
 }
 
@@ -174,8 +202,8 @@ impl View {
             Event::Key(event) => {
                 match event.code {
                     KeyCode::Char('q') => { return Ok(false); }
-                    KeyCode::Char('j') => view.down(),
-                    KeyCode::Char('k') => view.up(),
+                    KeyCode::Char('j') => view.down()?,
+                    KeyCode::Char('k') => view.up()?,
                     KeyCode::Char('c') =>
                         // Quit on Control-C, even though it's not
                         // actually coming through as an interrupt.
@@ -187,13 +215,13 @@ impl View {
             },
             Event::Mouse(event) => {
                 match event {
-                    MouseEvent::ScrollUp(..) => view.up(),
-                    MouseEvent::ScrollDown(..) => view.down(),
+                    MouseEvent::ScrollUp(..) => view.up()?,
+                    MouseEvent::ScrollDown(..) => view.down()?,
                     _ => (),
                 }
             },
             Event::Resize(w, h) => {
-                view.resize((w, h));
+                view.resize((w, h))?;
             },
         }
         Ok(true)
@@ -215,10 +243,6 @@ impl Fetch for View {
             let evt = read()?;
             if !self.event(evt, &mut view)? {
                 break;
-            }
-            if view.needs_redraw {
-                view.draw()?;
-                view.needs_redraw = false;
             }
         }
         execute!(std::io::stdout(), cursor::Show,
