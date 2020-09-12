@@ -32,6 +32,7 @@ fn main() -> Result<()> {
     View { }.display(&doc)?;
     */
 
-    fetch("gemini://gemini.circumlunar.space/docs/specification.gmi", config, &mut View {})?;
+    let mut view = View::new();
+    fetch("gemini://gemini.circumlunar.space/docs/specification.gmi", config, &mut view)?;
     Ok(())
 }

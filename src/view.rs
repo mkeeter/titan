@@ -11,13 +11,11 @@ use crossterm::{
     execute,
     terminal,
     event,
-    event::{read, Event, KeyCode, KeyModifiers, MouseEvent},
+    event::{read, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
     terminal::{Clear, ClearType},
     style::{style, Color, ContentStyle, Print, PrintStyledContent},
     queue,
 };
-
-pub struct View { }
 
 struct WrappedView<'a> {
     source: &'a Document<'a>,
@@ -194,37 +192,61 @@ impl WrappedView<'_> {
         }
         self.repaint(prev_cursor, prev_scroll)
     }
-}
 
-impl View {
-    fn event(&mut self, evt: Event, view: &mut WrappedView) -> Result<bool> {
-        match evt {
-            Event::Key(event) => {
-                match event.code {
-                    KeyCode::Char('q') => { return Ok(false); }
-                    KeyCode::Char('j') => view.down()?,
-                    KeyCode::Char('k') => view.up()?,
-                    KeyCode::Char('c') =>
-                        // Quit on Control-C, even though it's not
-                        // actually coming through as an interrupt.
-                        if event.modifiers == KeyModifiers::CONTROL {
-                            return Ok(false);
-                        }
-                    _ => (),
+    fn run(&mut self) -> Result<()> {
+        terminal::enable_raw_mode()?;
+        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
+        self.draw()?;
+
+        loop {
+            let evt = read()?;
+            if !self.event(evt)? {
+                return Ok(());
+            }
+        }
+    }
+
+    fn key(&mut self, k: KeyEvent) -> Result<bool> {
+        match k.code {
+            KeyCode::Char('q') => return Ok(false),
+            KeyCode::Char('j') => self.down()?,
+            KeyCode::Char('k') => self.up()?,
+            KeyCode::Char('c') =>
+                // Quit on Control-C, even though it's not
+                // actually coming through as an interrupt.
+                if k.modifiers == KeyModifiers::CONTROL {
+                    return Ok(false);
                 }
-            },
+            _ => (),
+        }
+        Ok(true)
+    }
+
+    fn event(&mut self, evt: Event) -> Result<bool> {
+        match evt {
+            Event::Key(event) => return self.key(event),
             Event::Mouse(event) => {
                 match event {
-                    MouseEvent::ScrollUp(..) => view.up()?,
-                    MouseEvent::ScrollDown(..) => view.down()?,
+                    MouseEvent::ScrollUp(..) => self.up()?,
+                    MouseEvent::ScrollDown(..) => self.down()?,
                     _ => (),
                 }
             },
             Event::Resize(w, h) => {
-                view.resize((w, h))?;
+                self.resize((w, h))?;
             },
         }
         Ok(true)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+pub struct View { }
+
+impl View {
+    pub fn new() -> View {
+        View {}
     }
 }
 
@@ -234,23 +256,23 @@ impl Fetch for View {
     }
 
     fn display(&mut self, doc: &Document) -> Result<()> {
-        terminal::enable_raw_mode()?;
-        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
         let mut view = WrappedView::new(doc, terminal::size()?, 0, 0);
-        view.draw()?;
+        let r = view.run();
 
-        loop {
-            let evt = read()?;
-            if !self.event(evt, &mut view)? {
-                break;
-            }
-        }
-        execute!(std::io::stdout(),
+        // We want to execute both cleanup functions, so we'll store their
+        // error codes and check them afterwards.
+        let a = execute!(std::io::stdout(),
             cursor::Show,
             event::DisableMouseCapture,
             terminal::Clear(ClearType::All),
-        )?;
-        terminal::disable_raw_mode()?;
+        );
+        let b = terminal::disable_raw_mode();
+
+        // Return errors from either the view or the cleanup functions
+        r?;
+        a?;
+        b?;
+
         Ok(())
     }
 
