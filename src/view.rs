@@ -25,6 +25,9 @@ struct WrappedView<'a> {
 
     yscroll: usize, // Y scoll position in the doc
     ycursor: usize, // Y cursor position in the doc
+
+    cmd: Option<String>,
+    has_cmd_error: bool,
 }
 
 impl WrappedView<'_> {
@@ -40,6 +43,8 @@ impl WrappedView<'_> {
 
         WrappedView { doc, source, ycursor, yscroll,
             size: (tw, th),
+            cmd: None,
+            has_cmd_error: false,
         }
     }
 
@@ -206,17 +211,78 @@ impl WrappedView<'_> {
         }
     }
 
+    fn execute_cmd(&mut self) -> Result<bool> {
+        let cmd = self.cmd.take().expect("Can't execute empty cmd");
+        if cmd == "q" {
+            Ok(false)
+        } else {
+            let mut out = std::io::stdout();
+            queue!(&mut out,
+                cursor::MoveTo(0, self.size.1 + 1),
+                Clear(ClearType::CurrentLine),
+                PrintStyledContent(
+                    style(format!("Unknown command: {}", cmd))
+                        .with(Color::DarkRed)),
+            )?;
+            out.flush()?;
+            self.has_cmd_error = true;
+            Ok(true)
+        }
+    }
+
+    fn repaint_cmd(&mut self) -> Result<()> {
+        let mut out = std::io::stdout();
+        queue!(&mut out,
+            cursor::MoveTo(0, self.size.1 + 1),
+            Clear(ClearType::CurrentLine),
+        )?;
+
+        if let Some(c) = &self.cmd {
+            queue!(&mut out,
+                Print(":"),
+                Print(c),
+            )?;
+        }
+        out.flush()?;
+        Ok(())
+    }
+
     fn key(&mut self, k: KeyEvent) -> Result<bool> {
+        if self.has_cmd_error {
+            self.repaint_cmd()?;
+            self.has_cmd_error = false;
+        }
+
+        let sigint = k.code == KeyCode::Char('c') &&
+                     k.modifiers == KeyModifiers::CONTROL;
+
+        if let Some(c) = &mut self.cmd {
+            if sigint {
+                self.cmd = None;
+            } else {
+                match k.code {
+                    KeyCode::Enter => return self.execute_cmd(),
+                    KeyCode::Backspace => { c.pop(); },
+                    KeyCode::Char(r) => { c.push(r); },
+                    _ => (),
+                }
+            }
+            self.repaint_cmd()?;
+            return Ok(true);
+        }
+
+        if sigint {
+            return Ok(false);
+        }
+
         match k.code {
-            KeyCode::Char('q') => return Ok(false),
             KeyCode::Char('j') => self.down()?,
             KeyCode::Char('k') => self.up()?,
-            KeyCode::Char('c') =>
-                // Quit on Control-C, even though it's not
-                // actually coming through as an interrupt.
-                if k.modifiers == KeyModifiers::CONTROL {
-                    return Ok(false);
-                }
+            KeyCode::Char(':') => {
+                self.cmd = Some(String::new());
+                self.repaint_cmd()?;
+                return Ok(true);
+            },
             _ => (),
         }
         Ok(true)
