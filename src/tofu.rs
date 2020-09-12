@@ -45,4 +45,3 @@ impl rustls::ServerCertVerifier for GeminiCertificateVerifier {
         }
     }
 }
-
