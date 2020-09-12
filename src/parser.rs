@@ -122,7 +122,7 @@ pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Document> {
         out.push(parsed);
     }
 
-    Ok((input, Document(out)))
+    Ok((input, Document::new(out)))
 }
 
 #[test]

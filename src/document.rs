@@ -2,13 +2,22 @@ use std::borrow::Cow;
 use crate::protocol::{Line, Line_};
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct Document<'a>(pub Vec<Line<'a>>);
+pub struct Document_<T>(pub Vec<T>);
 
-// A WrappedLine encodes a string and a flag marking whether it's the first
-// in its block.
+// This is our as-parsed document, with long lines
+pub type Document<'a> = Document_<Line<'a>>;
+
+// WrappedLine encodes a screen-wrapped line, along with a flag indicating
+// whether it's the first line in its block.  This matters for rendering,
+// e.g. a list shows "• " on the first line of each item.
 pub type WrappedLine<'a> = Line_<'a, (&'a str, bool)>;
-#[derive(Debug, Eq, PartialEq)]
-pub struct WrappedDocument<'a>(pub Vec<WrappedLine<'a>>);
+pub type WrappedDocument<'a> = Document_<WrappedLine<'a>>;
+
+impl<T> Document_<T> {
+    pub fn new(t: Vec<T>) -> Self {
+        Self(t)
+    }
+}
 
 impl Document<'_> {
     fn wrap<'a, F>(s: &'a str, width: usize, mut f: F)
@@ -56,7 +65,7 @@ impl Document<'_> {
         }
     }
     pub fn word_wrap(&self, width: usize) -> WrappedDocument {
-        WrappedDocument(self.0.iter()
+        WrappedDocument::new(self.0.iter()
             .map(|line| Self::line_wrap(line, width))
             .flatten()
             .collect()
