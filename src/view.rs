@@ -29,6 +29,18 @@ pub struct View<'a> {
     has_cmd_error: bool,
 }
 
+impl Drop for View<'_> {
+    fn drop(&mut self) {
+        execute!(std::io::stdout(),
+            cursor::Show,
+            event::DisableMouseCapture,
+            terminal::Clear(ClearType::All),
+        ).expect("Could not renable cursor");
+        terminal::disable_raw_mode()
+            .expect("Could not disable raw mode");
+    }
+}
+
 impl View<'_> {
     pub fn new<'a>(source: &'a Document) -> Result<View<'a>> {
         let size = terminal::size()?;
@@ -304,22 +316,5 @@ impl View<'_> {
             },
         }
         Ok(true)
-    }
-
-    pub fn cleanup(&self) -> Result<()> {
-        // We want to execute both cleanup functions, so we'll store their
-        // error codes and check them afterwards.
-        let a = execute!(std::io::stdout(),
-            cursor::Show,
-            event::DisableMouseCapture,
-            terminal::Clear(ClearType::All),
-        );
-        let b = terminal::disable_raw_mode();
-
-        // Return errors from either the view or the cleanup functions
-        a?;
-        b?;
-
-        Ok(())
     }
 }

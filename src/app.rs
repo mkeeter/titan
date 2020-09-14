@@ -97,7 +97,7 @@ impl App {
                     // Read other text/ MIME types as a single preformatted line
                     let body = std::str::from_utf8(body)?;
                     let text = Line::Pre { alt: None, text: body };
-                    // TODO: cb.display(&Document::new(vec![text]))?;
+                    self.display_doc(&Document::new(vec![text]))?;
                 } else {
                     return Err(anyhow!("Unknown meta: {}", header.meta));
                 }
@@ -111,10 +111,6 @@ impl App {
 
     fn display_doc(&self, doc: &Document) -> Result<()> {
         let mut v = View::new(doc)?;
-        let ea = v.run();
-        let eb = v.cleanup();
-        ea?;
-        eb?;
-        Ok(())
+        v.run()
     }
 }
