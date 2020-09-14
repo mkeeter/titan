@@ -93,7 +93,6 @@ impl App {
                     let (_, doc) = parse_text_gemini(body).map_err(
                         |e| anyhow!("text/gemini parsing failed: {}", e))?;
                     self.display_doc(&doc)?;
-                    // TODO: cb.display(&doc)?;
                 } else if header.meta.starts_with("text/") {
                     // Read other text/ MIME types as a single preformatted line
                     let body = std::str::from_utf8(body)?;
