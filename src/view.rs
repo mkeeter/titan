@@ -3,7 +3,6 @@ use std::io::{Write};
 
 use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
-use crate::fetch::Fetch;
 
 use anyhow::{Result};
 use crossterm::{
@@ -17,7 +16,7 @@ use crossterm::{
     queue,
 };
 
-struct WrappedView<'a> {
+pub struct View<'a> {
     source: &'a Document<'a>,
     doc: WrappedDocument<'a>,
 
@@ -30,10 +29,10 @@ struct WrappedView<'a> {
     has_cmd_error: bool,
 }
 
-impl WrappedView<'_> {
-    fn new<'a>(source: &'a Document, size: (u16, u16),
-               yscroll: usize, ycursor: usize) -> WrappedView<'a>
-    {
+impl View<'_> {
+    pub fn new<'a>(source: &'a Document) -> Result<View<'a>> {
+        let size = terminal::size()?;
+
         // Add two characters of padding on either side
         let tw = size.0 - 4;
         let doc = source.word_wrap((size.0 - 4).into());
@@ -41,11 +40,13 @@ impl WrappedView<'_> {
         // Add a status and command bar at the bottom
         let th = size.1 - 2;
 
-        WrappedView { doc, source, ycursor, yscroll,
+        Ok(View { doc, source,
+            ycursor: 0,
+            yscroll: 0,
             size: (tw, th),
             cmd: None,
             has_cmd_error: false,
-        }
+        })
     }
 
     fn resize(&mut self, size: (u16, u16)) -> Result<()> {
@@ -198,7 +199,7 @@ impl WrappedView<'_> {
         self.repaint(prev_cursor, prev_scroll)
     }
 
-    fn run(&mut self) -> Result<()> {
+    pub fn run(&mut self) -> Result<()> {
         terminal::enable_raw_mode()?;
         execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
         self.draw()?;
@@ -304,27 +305,8 @@ impl WrappedView<'_> {
         }
         Ok(true)
     }
-}
 
-////////////////////////////////////////////////////////////////////////////////
-
-pub struct View { }
-
-impl View {
-    pub fn new() -> View {
-        View {}
-    }
-}
-
-impl Fetch for View {
-    fn input(&mut self, _prompt: &str, _is_sensitive: bool) -> Result<String> {
-        unimplemented!("No input function yet");
-    }
-
-    fn display(&mut self, doc: &Document) -> Result<()> {
-        let mut view = WrappedView::new(doc, terminal::size()?, 0, 0);
-        let r = view.run();
-
+    pub fn cleanup(&self) -> Result<()> {
         // We want to execute both cleanup functions, so we'll store their
         // error codes and check them afterwards.
         let a = execute!(std::io::stdout(),
@@ -335,23 +317,9 @@ impl Fetch for View {
         let b = terminal::disable_raw_mode();
 
         // Return errors from either the view or the cleanup functions
-        r?;
         a?;
         b?;
 
-        Ok(())
-    }
-
-    fn header(&mut self, header: &ResponseHeader) -> Result<()> {
-        let (_, th) = terminal::size()?;
-        let mut out = std::io::stdout();
-        let s = format!(" {:?}: {} ", header.status, header.meta);
-        queue!(out,
-            cursor::MoveTo(0, th - 2),
-            terminal::Clear(ClearType::FromCursorDown),
-            PrintStyledContent(style(s).with(Color::Black).on(Color::Blue)),
-        )?;
-        out.flush()?;
         Ok(())
     }
 }

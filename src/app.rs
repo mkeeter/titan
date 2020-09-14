@@ -110,7 +110,11 @@ impl App {
     }
 
     fn display_doc(&self, doc: &Document) -> Result<()> {
-        let mut v = View::new();
-        v.display(doc)
+        let mut v = View::new(doc)?;
+        let ea = v.run();
+        let eb = v.cleanup();
+        ea?;
+        eb?;
+        Ok(())
     }
 }
