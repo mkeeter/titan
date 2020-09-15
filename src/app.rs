@@ -24,24 +24,30 @@ impl App {
         Ok(App { config })
     }
 
-    pub fn run(&self, mut target: String) -> Result<()> {
+    pub fn run(&self, mut target: url::Url) -> Result<()> {
         loop {
-            match self.fetch(&target)? {
+            // TODO: don't use a reference here?
+            match self.fetch(target.clone())? {
                 Command::Exit => break Ok(()),
                 Command::Load(s) => target = s,
-                Command::Continue | Command::Unknown(_) => unreachable!(),
+                Command::TryLoad(s) => {
+                    let mut url = url::Url::parse(&s);
+                    if url == Err(url::ParseError::RelativeUrlWithoutBase) {
+                        url = target.join(&s);
+                    }
+                    match url {
+                        // TODO: how to display error here?
+                        Err(e) => continue,
+                        Ok(url) => target = url,
+                    }
+                },
+                Command::Continue | Command::Unknown(_) | Command::Error(_) =>
+                    unreachable!(),
             }
         }
     }
 
-    pub fn fetch(&self, target: &str) -> Result<Command> {
-        // TODO: handle relative links within a document
-        let mut url = url::Url::parse(target);
-        if url == Err(url::ParseError::RelativeUrlWithoutBase) {
-            url = url::Url::parse(&format!("gemini://{}", target));
-        }
-        let url = url?;
-
+    pub fn fetch(&self, url: url::Url) -> Result<Command> {
         self.fetch_(url, 0)
     }
 
@@ -132,6 +138,9 @@ impl App {
                 Command::Continue => continue,
                 Command::Unknown(cmd) => {
                     v.set_cmd_error(&format!("Unknown command: {}", cmd))?;
+                },
+                Command::Error(err) => {
+                    v.set_cmd_error(&format!("Error: {}", err))?;
                 },
                 r => return Ok(r),
             }

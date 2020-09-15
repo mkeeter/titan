@@ -227,23 +227,6 @@ impl View<'_> {
         }
     }
 
-    fn parse_cmd(cmd: String) -> Command {
-        let mut itr = cmd.split_whitespace();
-        if let Some(c) = itr.next() {
-            match c {
-                "q" => Command::Exit,
-                "g" => if let Some(url) = itr.next() {
-                    Command::Load(url.to_string())
-                } else {
-                    Command::Unknown("Missing URL".to_string())
-                },
-                _ => Command::Unknown(cmd),
-            }
-        } else {
-            Command::Unknown(cmd)
-        }
-    }
-
     pub fn set_cmd_error(&mut self, err: &str) -> Result<()> {
         let mut out = std::io::stdout();
         queue!(&mut out,
@@ -283,16 +266,19 @@ impl View<'_> {
         let sigint = k.code == KeyCode::Char('c') &&
                      k.modifiers == KeyModifiers::CONTROL;
 
+        // Handle command editing if it is present
         if let Some(c) = &mut self.cmd {
             if sigint {
                 self.cmd = None;
             } else {
                 match k.code {
+                    // On return, try to execute whatever is in the buffer
                     KeyCode::Enter => {
                         // We know this is Some from the conditional above
                         let cmd = self.cmd.take().unwrap();
-                        return Ok(Self::parse_cmd(cmd));
+                        return Ok(Command::parse(cmd));
                     },
+                    // TODO: embed a readline-ish API here?
                     KeyCode::Backspace => { c.pop(); },
                     KeyCode::Char(r) => { c.push(r); },
                     _ => (),
@@ -306,6 +292,9 @@ impl View<'_> {
             return Ok(Command::Exit);
         }
 
+        // TODO: search mode with '/'
+        // TODO: multiple up/down commands, e.g. 10j
+
         match k.code {
             KeyCode::Char('j') => self.down()?,
             KeyCode::Char('k') => self.up()?,
@@ -313,6 +302,14 @@ impl View<'_> {
                 self.cmd = Some(String::new());
                 self.repaint_cmd()?;
                 return Ok(Command::Continue);
+            },
+            KeyCode::Enter => {
+                match self.doc.0[self.ycursor] {
+                    Line_::NamedLink { url, .. } |
+                    Line_::BareLink(url) =>
+                        return Ok(Command::TryLoad(url.to_string())),
+                    _ => (),
+                }
             },
             _ => (),
         }
