@@ -43,13 +43,19 @@ impl App {
             return Err(anyhow!("Too much recursion"));
         }
 
-        let url = url::Url::parse(target)?;
+        // TODO: handle relative links within a document
+        let mut url = url::Url::parse(target);
+        if url == Err(url::ParseError::RelativeUrlWithoutBase) {
+            url = url::Url::parse(&format!("gemini://{}", target));
+        }
+        let url = url?;
+
         if url.scheme() != "gemini" {
             return Err(anyhow!("Invalid URL scheme: {}", url.scheme()));
         }
 
         let hostname = url.host_str()
-            .ok_or_else(|| anyhow!("Error: no hostname in {}", target))?;
+            .ok_or_else(|| anyhow!("Error: no hostname in {}", url.as_str()))?;
         let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
         let mut sess = rustls::ClientSession::new(&self.config, dns_name);
 
@@ -57,7 +63,7 @@ impl App {
         let mut sock = TcpStream::connect(format!("{}:{}", hostname, port))?;
         let mut tls = rustls::Stream::new(&mut sess, &mut sock);
 
-        tls.write_all(format!("{}\r\n", target).as_bytes())?;
+        tls.write_all(format!("{}\r\n", url.as_str()).as_bytes())?;
 
         let mut plaintext = Vec::new();
         let rc = tls.read_to_end(&mut plaintext);
