@@ -10,6 +10,7 @@ pub enum Command {
 
 impl Command {
     pub fn parse(cmd: String) -> Command {
+        // TODO: use nom here as well
         let mut itr = cmd.split_whitespace();
         if let Some(c) = itr.next() {
             match c {
