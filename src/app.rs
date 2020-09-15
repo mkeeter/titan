@@ -35,20 +35,20 @@ impl App {
     }
 
     pub fn fetch(&self, target: &str) -> Result<Command> {
-        self.fetch_(target, 0)
-    }
-
-    fn fetch_(&self, target: &str, depth: u8) -> Result<Command> {
-        if depth >= 5 {
-            return Err(anyhow!("Too much recursion"));
-        }
-
         // TODO: handle relative links within a document
         let mut url = url::Url::parse(target);
         if url == Err(url::ParseError::RelativeUrlWithoutBase) {
             url = url::Url::parse(&format!("gemini://{}", target));
         }
         let url = url?;
+
+        self.fetch_(url, 0)
+    }
+
+    fn fetch_(&self, url: url::Url, depth: u8) -> Result<Command> {
+        if depth >= 5 {
+            return Err(anyhow!("Too much recursion"));
+        }
 
         if url.scheme() != "gemini" {
             return Err(anyhow!("Invalid URL scheme: {}", url.scheme()));
@@ -82,7 +82,8 @@ impl App {
         use ResponseStatus::*;
         match header.status {
             RedirectTemporary | RedirectPermanent => {
-                self.fetch_(&header.meta, depth + 1)
+                let next = url::Url::parse(header.meta)?;
+                self.fetch_(next, depth + 1)
             },
 
             Input | SensitiveInput => {
@@ -99,7 +100,7 @@ impl App {
                     }
                     segs.extend(&["?", &input]);
                 }
-                self.fetch_(url.as_str(), depth + 1)
+                self.fetch_(url, depth + 1)
             },
             // Only read the response body if we got a Success response status
             Success => {
