@@ -24,11 +24,21 @@ impl App {
         Ok(App { config })
     }
 
-    pub fn fetch(&self, target: &str) -> Result<()> {
+    pub fn run(&self, mut target: String) -> Result<()> {
+        loop {
+            match self.fetch(&target)? {
+                Command::Exit => break Ok(()),
+                Command::Load(s) => target = s,
+                Command::Continue | Command::Unknown(_) => unreachable!(),
+            }
+        }
+    }
+
+    pub fn fetch(&self, target: &str) -> Result<Command> {
         self.fetch_(target, 0)
     }
 
-    fn fetch_(&self, target: &str, depth: u8) -> Result<()> {
+    fn fetch_(&self, target: &str, depth: u8) -> Result<Command> {
         if depth >= 5 {
             return Err(anyhow!("Too much recursion"));
         }
@@ -66,7 +76,7 @@ impl App {
         use ResponseStatus::*;
         match header.status {
             RedirectTemporary | RedirectPermanent => {
-                return self.fetch_(&header.meta, depth + 1);
+                self.fetch_(&header.meta, depth + 1)
             },
 
             Input | SensitiveInput => {
@@ -83,7 +93,7 @@ impl App {
                     }
                     segs.extend(&["?", &input]);
                 }
-                return self.fetch_(url.as_str(), depth + 1);
+                self.fetch_(url.as_str(), depth + 1)
             },
             // Only read the response body if we got a Success response status
             Success => {
@@ -92,35 +102,32 @@ impl App {
                     let body = std::str::from_utf8(body)?;
                     let (_, doc) = parse_text_gemini(body).map_err(
                         |e| anyhow!("text/gemini parsing failed: {}", e))?;
-                    self.display_doc(&doc)?;
+                    self.display_doc(&doc)
                 } else if header.meta.starts_with("text/") {
                     // Read other text/ MIME types as a single preformatted line
                     let body = std::str::from_utf8(body)?;
                     let text = Line::Pre { alt: None, text: body };
-                    self.display_doc(&Document::new(vec![text]))?;
+                    self.display_doc(&Document::new(vec![text]))
                 } else {
-                    return Err(anyhow!("Unknown meta: {}", header.meta));
+                    Err(anyhow!("Unknown meta: {}", header.meta))
                 }
             },
 
             // Otherwise, invoke the header cb
-            _ => { /* TODO cb.header(&header)?; */ }
+            _ => Ok(Command::Exit), // TODO cb.header(&header)?;
         }
-        Ok(())
     }
 
-    fn display_doc(&self, doc: &Document) -> Result<()> {
+    fn display_doc(&self, doc: &Document) -> Result<Command> {
         let mut v = View::new(doc)?;
         loop {
             match v.run()? {
-                Command::Exit => break,
                 Command::Continue => continue,
                 Command::Unknown(cmd) => {
                     v.set_cmd_error(&format!("Unknown command: {}", cmd))?;
                 },
-                _ => unimplemented!(),
+                r => return Ok(r),
             }
         }
-        Ok(())
     }
 }

@@ -228,8 +228,17 @@ impl View<'_> {
     }
 
     fn parse_cmd(cmd: String) -> Command {
-        if cmd == "q" {
-            Command::Exit
+        let mut itr = cmd.split_whitespace();
+        if let Some(c) = itr.next() {
+            match c {
+                "q" => Command::Exit,
+                "g" => if let Some(url) = itr.next() {
+                    Command::Load(url.to_string())
+                } else {
+                    Command::Unknown("Missing URL".to_string())
+                },
+                _ => Command::Unknown(cmd),
+            }
         } else {
             Command::Unknown(cmd)
         }

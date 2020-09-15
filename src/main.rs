@@ -19,6 +19,6 @@ fn main() -> Result<()> {
     let db = sled::open(dirs.data_dir())?;
 
     let mut app = App::new(&db)?;
-    app.fetch("gemini://gemini.circumlunar.space/docs/specification.gmi")?;
+    app.run("gemini://gemini.circumlunar.space/docs/specification.gmi".to_string())?;
     Ok(())
 }
