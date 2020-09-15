@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 mod app;
+mod command;
 mod document;
 mod protocol;
 mod parser;

@@ -5,6 +5,7 @@ use std::net::TcpStream;
 use anyhow::{anyhow, Result};
 
 use crate::tofu::GeminiCertificateVerifier;
+use crate::command::Command;
 use crate::document::Document;
 use crate::parser::{parse_response_header, parse_text_gemini};
 use crate::protocol::{Line, ResponseHeader, ResponseStatus};
@@ -111,6 +112,16 @@ impl App {
 
     fn display_doc(&self, doc: &Document) -> Result<()> {
         let mut v = View::new(doc)?;
-        v.run()
+        loop {
+            match v.run()? {
+                Command::Exit => break,
+                Command::Continue => continue,
+                Command::Unknown(cmd) => {
+                    v.set_cmd_error(&format!("Unknown command: {}", cmd))?;
+                },
+                _ => unimplemented!(),
+            }
+        }
+        Ok(())
     }
 }

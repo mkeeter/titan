@@ -3,6 +3,7 @@ use std::io::{Write};
 
 use crate::document::{Document, WrappedDocument};
 use crate::protocol::{ResponseHeader, Line_};
+use crate::command::Command;
 
 use anyhow::{Result};
 use crossterm::{
@@ -52,13 +53,18 @@ impl View<'_> {
         // Add a status and command bar at the bottom
         let th = size.1 - 2;
 
-        Ok(View { doc, source,
+        let v = View { doc, source,
             ycursor: 0,
             yscroll: 0,
             size: (tw, th),
             cmd: None,
             has_cmd_error: false,
-        })
+        };
+        terminal::enable_raw_mode()?;
+        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
+        v.draw()?;
+
+        Ok(v)
     }
 
     fn resize(&mut self, size: (u16, u16)) -> Result<()> {
@@ -211,36 +217,34 @@ impl View<'_> {
         self.repaint(prev_cursor, prev_scroll)
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        terminal::enable_raw_mode()?;
-        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
-        self.draw()?;
-
+    pub fn run(&mut self) -> Result<Command> {
         loop {
             let evt = read()?;
-            if !self.event(evt)? {
-                return Ok(());
+            let cmd = self.event(evt)?;
+            if cmd != Command::Continue {
+                return Ok(cmd);
             }
         }
     }
 
-    fn execute_cmd(&mut self) -> Result<bool> {
-        let cmd = self.cmd.take().expect("Can't execute empty cmd");
+    fn parse_cmd(cmd: String) -> Command {
         if cmd == "q" {
-            Ok(false)
+            Command::Exit
         } else {
-            let mut out = std::io::stdout();
-            queue!(&mut out,
-                cursor::MoveTo(0, self.size.1 + 1),
-                Clear(ClearType::CurrentLine),
-                PrintStyledContent(
-                    style(format!("Unknown command: {}", cmd))
-                        .with(Color::DarkRed)),
-            )?;
-            out.flush()?;
-            self.has_cmd_error = true;
-            Ok(true)
+            Command::Unknown(cmd)
         }
+    }
+
+    pub fn set_cmd_error(&mut self, err: &str) -> Result<()> {
+        let mut out = std::io::stdout();
+        queue!(&mut out,
+            cursor::MoveTo(0, self.size.1 + 1),
+            Clear(ClearType::CurrentLine),
+            PrintStyledContent(style(err).with(Color::DarkRed)),
+        )?;
+        out.flush()?;
+        self.has_cmd_error = true;
+        Ok(())
     }
 
     fn repaint_cmd(&mut self) -> Result<()> {
@@ -260,7 +264,8 @@ impl View<'_> {
         Ok(())
     }
 
-    fn key(&mut self, k: KeyEvent) -> Result<bool> {
+    fn key(&mut self, k: KeyEvent) -> Result<Command> {
+        // Clear the command error pane on any keypress
         if self.has_cmd_error {
             self.repaint_cmd()?;
             self.has_cmd_error = false;
@@ -274,18 +279,22 @@ impl View<'_> {
                 self.cmd = None;
             } else {
                 match k.code {
-                    KeyCode::Enter => return self.execute_cmd(),
+                    KeyCode::Enter => {
+                        // We know this is Some from the conditional above
+                        let cmd = self.cmd.take().unwrap();
+                        return Ok(Self::parse_cmd(cmd));
+                    },
                     KeyCode::Backspace => { c.pop(); },
                     KeyCode::Char(r) => { c.push(r); },
                     _ => (),
                 }
             }
             self.repaint_cmd()?;
-            return Ok(true);
+            return Ok(Command::Continue);
         }
 
         if sigint {
-            return Ok(false);
+            return Ok(Command::Exit);
         }
 
         match k.code {
@@ -294,14 +303,14 @@ impl View<'_> {
             KeyCode::Char(':') => {
                 self.cmd = Some(String::new());
                 self.repaint_cmd()?;
-                return Ok(true);
+                return Ok(Command::Continue);
             },
             _ => (),
         }
-        Ok(true)
+        Ok(Command::Continue)
     }
 
-    fn event(&mut self, evt: Event) -> Result<bool> {
+    fn event(&mut self, evt: Event) -> Result<Command> {
         match evt {
             Event::Key(event) => return self.key(event),
             Event::Mouse(event) => {
@@ -315,6 +324,6 @@ impl View<'_> {
                 self.resize((w, h))?;
             },
         }
-        Ok(true)
+        Ok(Command::Continue)
     }
 }
