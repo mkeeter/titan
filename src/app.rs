@@ -82,8 +82,8 @@ impl App {
             }
         }
 
-        let (body, header) = parse_response_header(&plaintext).map_err(
-            |e| anyhow!("Header parsing failed: {}", e))?;
+        let (body, header) = parse_response_header(&plaintext)
+            .map_err(|e| anyhow!("Header parsing failed: {}", e))?;
 
         use ResponseStatus::*;
         match header.status {
@@ -93,19 +93,15 @@ impl App {
             },
 
             Input | SensitiveInput => {
-                let input = ""; // TODO
-                let has_query = url.query().is_some();
+                let input = "test"; // TODO
 
-                // Recast the URL variable to be mutable in this block
+                // Serialize the input string and set it as the query param
+                use url::form_urlencoded::byte_serialize;
+                let input: String = byte_serialize(input.as_bytes())
+                    .collect();
+
                 let mut url = url;
-                {   // Modify the URL to include the query string
-                    let mut segs = url.path_segments_mut()
-                        .map_err(|_| anyhow!("Could not get path segments"))?;
-                    if has_query {
-                        segs.pop();
-                    }
-                    segs.extend(&["?", &input]);
-                }
+                url.set_query(Some(&input));
                 self.fetch_(url, depth + 1)
             },
             // Only read the response body if we got a Success response status
