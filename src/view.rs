@@ -162,7 +162,7 @@ impl View<'_> {
 
     // Safely increments a line index
     fn increment_index(&self, index: usize) -> usize {
-        self.doc.0.len().min(index + 1)
+        (index + 1).min(self.doc.0.len() - 1)
     }
 
     // Selectively repaints based on whether scroll or cursor position has
