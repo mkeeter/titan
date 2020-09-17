@@ -2,10 +2,10 @@ use std::convert::TryInto;
 use std::io::{Write};
 
 use crate::document::{Document, WrappedDocument};
+use crate::input::Input;
 use crate::protocol::{ResponseHeader, Line_};
 use crate::command::Command;
 
-use anyhow::{Result};
 use crossterm::{
     cursor,
     execute,
@@ -26,9 +26,10 @@ pub struct View<'a> {
     yscroll: usize, // Y scoll position in the doc
     ycursor: usize, // Y cursor position in the doc
 
-    cmd: Option<String>,
     has_cmd_error: bool,
 }
+
+type ViewResult<T> = Result<T, crossterm::ErrorKind>;
 
 impl Drop for View<'_> {
     fn drop(&mut self) {
@@ -43,7 +44,7 @@ impl Drop for View<'_> {
 }
 
 impl View<'_> {
-    pub fn new<'a>(source: &'a Document) -> Result<View<'a>> {
+    pub fn new<'a>(source: &'a Document) -> ViewResult<View<'a>> {
         let size = terminal::size()?;
 
         // Add two characters of padding on either side
@@ -57,7 +58,6 @@ impl View<'_> {
             ycursor: 0,
             yscroll: 0,
             size: (tw, th),
-            cmd: None,
             has_cmd_error: false,
         };
         terminal::enable_raw_mode()?;
@@ -67,7 +67,7 @@ impl View<'_> {
         Ok(v)
     }
 
-    fn resize(&mut self, size: (u16, u16)) -> Result<()> {
+    fn resize(&mut self, size: (u16, u16)) -> ViewResult<()> {
         // Attempt to maintain roughly the same scroll and cursor position
         // after resizing is complete
         let yscroll_frac = self.yscroll as f32 / self.doc.0.len() as f32;
@@ -95,14 +95,14 @@ impl View<'_> {
         (p.0, if p.1 { first } else { later })
     }
 
-    fn draw_line<W: Write>(&self, out: &mut W, index: usize) -> Result<()> {
+    fn draw_line<W: Write>(&self, out: &mut W, i: usize) -> ViewResult<()> {
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.
         let p = Self::prefix;
 
         use Line_::*;
         let c = ContentStyle::new();
-        let ((text, prefix), c) = match self.doc.0[index] {
+        let ((text, prefix), c) = match self.doc.0[i] {
             Text(t) => ((t.0, ""), c),
             H1(t) => (p(t, "# ", "  "), c.foreground(Color::DarkRed)),
             H2(t) => (p(t, "## ", "   "), c.foreground(Color::DarkYellow)),
@@ -117,10 +117,10 @@ impl View<'_> {
             Pre { text, .. } => ((text.0, ""), c.foreground(Color::Red)),
         };
 
-        let sy = (index - self.yscroll).try_into().unwrap();
+        let sy = (i - self.yscroll).try_into().unwrap();
         assert!(sy < self.size.1);
 
-        if index == self.ycursor {
+        if i == self.ycursor {
             let c = c.background(Color::Black);
             let fill = " ".repeat((self.size.0 + 1).into());
             queue!(out,
@@ -140,7 +140,7 @@ impl View<'_> {
         Ok(())
     }
 
-    fn draw(&self) -> Result<()> {
+    fn draw(&self) -> ViewResult<()> {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
 
@@ -168,7 +168,7 @@ impl View<'_> {
     // Selectively repaints based on whether scroll or cursor position has
     // changed.  If only cursor position changed, then redraws the relevant
     // lines to minimize flickering.
-    fn repaint(&mut self, cursor: usize, scroll: usize) -> Result<()> {
+    fn repaint(&mut self, cursor: usize, scroll: usize) -> ViewResult<()> {
         if scroll != self.yscroll {
             // If the scroll position has changed, then we need to queue up
             // a full redraw of the whole screen.
@@ -190,7 +190,7 @@ impl View<'_> {
         Ok(())
     }
 
-    fn down(&mut self) -> Result<()> {
+    fn down(&mut self) -> ViewResult<()> {
         let prev_cursor = self.ycursor;
         let prev_scroll = self.yscroll;
         self.ycursor = self.increment_index(self.ycursor);
@@ -207,7 +207,7 @@ impl View<'_> {
         index.saturating_sub(1)
     }
 
-    fn up(&mut self) -> Result<()> {
+    fn up(&mut self) -> ViewResult<()> {
         let prev_cursor = self.ycursor;
         let prev_scroll = self.yscroll;
         self.ycursor = self.decrement_index(self.ycursor);
@@ -217,7 +217,7 @@ impl View<'_> {
         self.repaint(prev_cursor, prev_scroll)
     }
 
-    pub fn run(&mut self) -> Result<Command> {
+    pub fn run(&mut self) -> ViewResult<Command> {
         loop {
             let evt = read()?;
             let cmd = self.event(evt)?;
@@ -227,70 +227,40 @@ impl View<'_> {
         }
     }
 
-    pub fn set_cmd_error(&mut self, err: &str) -> Result<()> {
+    pub fn set_cmd_error(&mut self, err: &str) -> ViewResult<()> {
         let mut out = std::io::stdout();
-        queue!(&mut out,
+        execute!(&mut out,
             cursor::MoveTo(0, self.size.1 + 1),
             Clear(ClearType::CurrentLine),
             PrintStyledContent(style(err).with(Color::DarkRed)),
         )?;
-        out.flush()?;
         self.has_cmd_error = true;
         Ok(())
     }
 
-    fn repaint_cmd(&mut self) -> Result<()> {
+    fn clear_cmd(&mut self) -> ViewResult<()> {
         let mut out = std::io::stdout();
-        queue!(&mut out,
+        execute!(&mut out,
             cursor::MoveTo(0, self.size.1 + 1),
             Clear(ClearType::CurrentLine),
         )?;
-
-        if let Some(c) = &self.cmd {
-            queue!(&mut out,
-                Print(":"),
-                Print(c),
-            )?;
-        }
-        out.flush()?;
+        self.has_cmd_error = false;
         Ok(())
     }
 
-    fn key(&mut self, k: KeyEvent) -> Result<Command> {
-        // Clear the command error pane on any keypress
-        if self.has_cmd_error {
-            self.repaint_cmd()?;
-            self.has_cmd_error = false;
-        }
-
-        let sigint = k.code == KeyCode::Char('c') &&
-                     k.modifiers == KeyModifiers::CONTROL;
-
-        // Handle command editing if it is present
-        if let Some(c) = &mut self.cmd {
-            if sigint {
-                self.cmd = None;
-            } else {
-                match k.code {
-                    // On return, try to execute whatever is in the buffer
-                    KeyCode::Enter => {
-                        // We know this is Some from the conditional above
-                        let cmd = self.cmd.take().unwrap();
-                        return Ok(Command::parse(cmd));
-                    },
-                    // TODO: embed a readline-ish API here?
-                    KeyCode::Backspace => { c.pop(); },
-                    KeyCode::Char(r) => { c.push(r); },
-                    _ => (),
-                }
-            }
-            self.repaint_cmd()?;
-            return Ok(Command::Continue);
-        }
-
-        if sigint {
+    fn key(&mut self, k: KeyEvent) -> ViewResult<Command> {
+        // Exit on Ctrl-C, even though we don't get a true SIGINT
+        if k.code == KeyCode::Char('c') &&
+           k.modifiers == KeyModifiers::CONTROL
+        {
             return Ok(Command::Exit);
         }
+
+        // Clear the command error pane on any keypress
+        if self.has_cmd_error {
+            self.clear_cmd()?;
+        }
+
 
         // TODO: search mode with '/'
         // TODO: multiple up/down commands, e.g. 10j
@@ -299,9 +269,16 @@ impl View<'_> {
             KeyCode::Char('j') => self.down()?,
             KeyCode::Char('k') => self.up()?,
             KeyCode::Char(':') => {
-                self.cmd = Some(String::new());
-                self.repaint_cmd()?;
-                return Ok(Command::Continue);
+                execute!(&mut std::io::stdout(),
+                    cursor::MoveTo(0, self.size.1 + 1),
+                    Print(":"),
+                )?;
+                if let Some(cmd) = Input::new().run() {
+                    return Ok(Command::parse(cmd));
+                } else {
+                    self.clear_cmd()?;
+                    return Ok(Command::Continue);
+                }
             },
             KeyCode::Enter => {
                 match self.doc.0[self.ycursor] {
@@ -316,7 +293,7 @@ impl View<'_> {
         Ok(Command::Continue)
     }
 
-    fn event(&mut self, evt: Event) -> Result<Command> {
+    fn event(&mut self, evt: Event) -> ViewResult<Command> {
         match evt {
             Event::Key(event) => return self.key(event),
             Event::Mouse(event) => {

@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use crate::tofu::GeminiCertificateVerifier;
 use crate::command::Command;
 use crate::document::Document;
+use crate::input;
 use crate::parser::{parse_response_header, parse_text_gemini};
 use crate::protocol::{Line, ResponseHeader, ResponseStatus};
 use crate::view::View;
@@ -93,16 +94,18 @@ impl App {
             },
 
             Input | SensitiveInput => {
-                let input = "test"; // TODO
+                if let Some(input) = input::Input::new().run() {
+                    // Serialize the input string and set it as the query param
+                    use url::form_urlencoded::byte_serialize;
+                    let input: String = byte_serialize(input.as_bytes())
+                        .collect();
 
-                // Serialize the input string and set it as the query param
-                use url::form_urlencoded::byte_serialize;
-                let input: String = byte_serialize(input.as_bytes())
-                    .collect();
-
-                let mut url = url;
-                url.set_query(Some(&input));
-                self.fetch_(url, depth + 1)
+                    let mut url = url;
+                    url.set_query(Some(&input));
+                    self.fetch_(url, depth + 1)
+                } else {
+                    Ok(Command::Error("Failed to get input".to_string()))
+                }
             },
             // Only read the response body if we got a Success response status
             Success => {

@@ -1,48 +1,77 @@
-use anyhow::Result;
+use std::io::Write;
+
 use crossterm::{
-    event::{read, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
+    cursor,
+    execute,
+    cursor::MoveLeft,
+    event::{read, Event, KeyCode, KeyEvent, KeyModifiers},
+    style::{Print},
 };
 
-struct Input(String);
+pub struct Input(String);
+
+impl Drop for Input {
+    fn drop(&mut self) {
+        execute!(std::io::stdout(),
+            cursor::Hide,
+        ).expect("Could not hide cursor");
+    }
+}
 
 impl Input {
-    fn run(&mut self) -> Result<String> {
+    pub fn new() -> Input {
+        Input(String::new())
+    }
+
+    pub fn run(&mut self) -> Option<String> {
         execute!(std::io::stdout(),
             cursor::Show,
-        )?;
+        ).expect("Failed to execute");
         loop {
-            let evt = read()?;
-            if let Some(out) = self.event(evt)? {
-                return Ok(out);
+            let evt = read().expect("Failed to read event");
+            match evt {
+                Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                    return Some(self.0.clone());
+                },
+                Event::Key(event) =>
+                    if !self.key(event) {
+                        return None;
+                    }
+                _ => continue,
             }
         }
     }
 
-    fn event(&mut self, evt: Event) -> Result<String> {
-        match evt {
-            Event::Key(event) => return self.key(event),
-            _ => (),
-        }
-    }
-
-    fn key(&mut self, k: KeyEvent) -> Result<String> {
+    fn key(&mut self, k: KeyEvent) -> bool {
         let sigint = k.code == KeyCode::Char('c') &&
                      k.modifiers == KeyModifiers::CONTROL;
 
-        // Handle command editing if it is present
-        if sigint {
-            // Abort
-        } else {
-            match k.code {
-                // On return, try to execute whatever is in the buffer
-                KeyCode::Enter => {
-                    self.0.take()
-                },
-                KeyCode::Backspace => { self.0.pop(); },
-                KeyCode::Char(r) => { self.0.push(r); },
-                _ => (),
-            }
+        // Cancel on Ctrl-C or escape
+        if sigint || k.code == KeyCode::Esc {
+            return false;
         }
-        None
+
+        // Otherwise, edit the buffer and redraw
+        let mut out = std::io::stdout();
+        match k.code {
+            KeyCode::Backspace => {
+                if !self.0.is_empty() {
+                    self.0.pop();
+                    execute!(&mut out,
+                        MoveLeft(1),
+                        Print(" "),
+                        MoveLeft(1),
+                    ).expect("Failed to execute");
+                }
+            },
+            KeyCode::Char(r) => {
+                self.0.push(r);
+                execute!(&mut out,
+                    Print(r),
+                ).expect("Failed to execute");
+            },
+            _ => (),
+        }
+        true
     }
 }
