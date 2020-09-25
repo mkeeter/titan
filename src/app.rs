@@ -46,19 +46,10 @@ impl App {
         }
     }
 
-    pub fn fetch(&self, url: url::Url) -> Result<Command> {
-        self.fetch_(url, 0)
-    }
-
-    fn fetch_(&self, url: url::Url, depth: u8) -> Result<Command> {
-        if depth >= 5 {
-            return Err(anyhow!("Too much recursion"));
-        }
-
+    fn read(&self, url: &url::Url) -> Result<Vec<u8>> {
         if url.scheme() != "gemini" {
             return Err(anyhow!("Invalid URL scheme: {}", url.scheme()));
         }
-
         let hostname = url.host_str()
             .ok_or_else(|| anyhow!("Error: no hostname in {}", url.as_str()))?;
         let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
@@ -80,6 +71,19 @@ impl App {
                 return Err(err.into());
             }
         }
+        Ok(plaintext)
+    }
+
+    pub fn fetch(&self, url: url::Url) -> Result<Command> {
+        self.fetch_(url, 0)
+    }
+
+    fn fetch_(&self, url: url::Url, depth: u8) -> Result<Command> {
+        if depth >= 5 {
+            return Err(anyhow!("Too much recursion"));
+        }
+
+        let plaintext = self.read(&url)?;
 
         let (body, header) = parse_response_header(&plaintext)
             .map_err(|e| anyhow!("Header parsing failed: {}", e))?;
