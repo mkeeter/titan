@@ -115,7 +115,7 @@ fn parse_line_text(input: &str) -> IResult<&str, Line> {
 }
 
 /// Parse a single line or preformatted block of text/gemini
-pub fn parse_line(input: &str) -> IResult<&str, Line> {
+fn parse_line(input: &str) -> IResult<&str, Line> {
     alt((parse_line_h3, parse_line_h2, parse_line_h1, parse_line_list,
          parse_line_quote, parse_line_link, parse_pre, parse_line_text))
         (input)
