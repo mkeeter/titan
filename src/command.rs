@@ -2,7 +2,6 @@ use anyhow::{anyhow, Result};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum Command {
-    Continue,
     Exit,
     Load(url::Url),
     TryLoad(String),

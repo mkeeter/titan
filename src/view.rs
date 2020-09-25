@@ -219,9 +219,8 @@ impl View<'_> {
     pub fn run(&mut self) -> Result<Command> {
         loop {
             let evt = read().expect("Could not read event");
-            let cmd = self.event(evt)?;
-            if cmd != Command::Continue {
-                return Ok(cmd);
+            if let Some(cmd) = self.event(evt) {
+                return cmd;
             }
         }
     }
@@ -245,12 +244,12 @@ impl View<'_> {
         self.has_cmd_error = false;
     }
 
-    fn key(&mut self, k: KeyEvent) -> Result<Command> {
+    fn key(&mut self, k: KeyEvent) -> Option<Result<Command>> {
         // Exit on Ctrl-C, even though we don't get a true SIGINT
         if k.code == KeyCode::Char('c') &&
            k.modifiers == KeyModifiers::CONTROL
         {
-            return Ok(Command::Exit);
+            return Some(Ok(Command::Exit));
         }
 
         // Clear the command error pane on any keypress
@@ -263,47 +262,47 @@ impl View<'_> {
         // TODO: multiple up/down commands, e.g. 10j
 
         match k.code {
-            KeyCode::Char('j') => self.down(),
-            KeyCode::Char('k') => self.up(),
+            KeyCode::Char('j') => { self.down(); None }
+            KeyCode::Char('k') => { self.up(); None }
             KeyCode::Char(':') => {
                 execute!(&mut std::io::stdout(),
                     cursor::MoveTo(0, self.size.1 + 1),
                     Print(":"),
                 ).expect("Could not start drawing command line");
                 if let Some(cmd) = Input::new().run() {
-                    return Command::parse(cmd);
+                    Some(Command::parse(cmd))
                 } else {
                     self.clear_cmd();
-                    return Ok(Command::Continue);
+                    None
                 }
             },
             KeyCode::Enter => {
                 match self.doc.0[self.ycursor] {
                     Line_::NamedLink { url, .. } |
                     Line_::BareLink(url) =>
-                        return Ok(Command::TryLoad(url.to_string())),
-                    _ => (),
+                        Some(Ok(Command::TryLoad(url.to_string()))),
+                    _ => None
                 }
             },
-            _ => (),
+            _ => None,
         }
-        Ok(Command::Continue)
     }
 
-    fn event(&mut self, evt: Event) -> Result<Command> {
+    fn event(&mut self, evt: Event) -> Option<Result<Command>> {
         match evt {
-            Event::Key(event) => return self.key(event),
+            Event::Key(event) => self.key(event),
             Event::Mouse(event) => {
                 match event {
                     MouseEvent::ScrollUp(..) => self.up(),
                     MouseEvent::ScrollDown(..) => self.down(),
                     _ => (),
-                }
+                };
+                None
             },
             Event::Resize(w, h) => {
                 self.resize((w, h));
+                None
             },
         }
-        Ok(Command::Continue)
     }
 }

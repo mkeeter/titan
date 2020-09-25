@@ -42,7 +42,6 @@ impl App {
                         Ok(url) => target = url,
                     }
                 },
-                Command::Continue => unreachable!(),
             }
         }
     }
@@ -133,10 +132,7 @@ impl App {
         let mut v = View::new(doc);
         loop {
             match v.run() {
-                Ok(cmd) => match cmd {
-                    Command::Continue => continue,
-                    r => return Ok(r),
-                },
+                Ok(cmd) => return Ok(cmd),
                 Err(err) => v.set_cmd_error(&format!("{}", err)),
             }
         }
