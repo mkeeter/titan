@@ -14,7 +14,7 @@ use nom::{
     sequence::{terminated, tuple},
 };
 
-use crate::protocol::{ResponseStatus, ResponseHeader, Response, Line};
+use crate::protocol::{ResponseStatus, Response, Line};
 
 // Temporary tuple type, to make nom's type-inference happy
 type ResponseHeader<'a> = (ResponseStatus, &'a str);
