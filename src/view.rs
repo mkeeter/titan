@@ -29,8 +29,6 @@ pub struct View<'a> {
     has_cmd_error: bool,
 }
 
-type ViewResult<T> = Result<T, crossterm::ErrorKind>;
-
 impl Drop for View<'_> {
     fn drop(&mut self) {
         execute!(std::io::stdout(),
@@ -44,8 +42,9 @@ impl Drop for View<'_> {
 }
 
 impl View<'_> {
-    pub fn new<'a>(source: &'a Document) -> ViewResult<View<'a>> {
-        let size = terminal::size()?;
+    pub fn new<'a>(source: &'a Document) -> View<'a> {
+        let size = terminal::size()
+            .expect("Could not get terminal size");
 
         // Add two characters of padding on either side
         let tw = size.0 - 4;
@@ -60,14 +59,15 @@ impl View<'_> {
             size: (tw, th),
             has_cmd_error: false,
         };
-        terminal::enable_raw_mode()?;
-        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)?;
-        v.draw()?;
-
-        Ok(v)
+        terminal::enable_raw_mode()
+            .expect("Could not enable raw mode");
+        execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)
+            .expect("Could not hide cursor");
+        v.draw();
+        v
     }
 
-    fn resize(&mut self, size: (u16, u16)) -> ViewResult<()> {
+    fn resize(&mut self, size: (u16, u16)) {
         // Attempt to maintain roughly the same scroll and cursor position
         // after resizing is complete
         let yscroll_frac = self.yscroll as f32 / self.doc.0.len() as f32;
@@ -95,7 +95,7 @@ impl View<'_> {
         (p.0, if p.1 { first } else { later })
     }
 
-    fn draw_line<W: Write>(&self, out: &mut W, i: usize) -> ViewResult<()> {
+    fn draw_line<W: Write>(&self, out: &mut W, i: usize) {
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.
         let p = Self::prefix;
@@ -129,35 +129,33 @@ impl View<'_> {
                 cursor::MoveTo(2, sy),
                 PrintStyledContent(style(prefix).on(Color::Black)),
                 PrintStyledContent(c.apply(text)),
-            )?;
+            )
         } else {
             queue!(out,
                 cursor::MoveTo(2, sy),
                 Print(prefix),
                 PrintStyledContent(c.apply(text)),
-            )?;
-        }
-        Ok(())
+            )
+        }.expect("Could not queue line");
     }
 
-    fn draw(&self) -> ViewResult<()> {
+    fn draw(&self) {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
 
         queue!(out,
             cursor::MoveTo(self.size.0 + 4, self.size.1 - 1),
             Clear(ClearType::FromCursorUp),
-        )?;
+        ).expect("Could not queue clear");
 
         for i in (0..self.size.1)
             .map(|i| i as usize + self.yscroll)
             .take_while(|i| *i < self.doc.0.len())
         {
-            self.draw_line(&mut out, i)?;
+            self.draw_line(&mut out, i);
         }
 
-        out.flush()?;
-        Ok(())
+        out.flush().expect("Could not flush stdout");
     }
 
     // Safely increments a line index
@@ -168,11 +166,11 @@ impl View<'_> {
     // Selectively repaints based on whether scroll or cursor position has
     // changed.  If only cursor position changed, then redraws the relevant
     // lines to minimize flickering.
-    fn repaint(&mut self, cursor: usize, scroll: usize) -> ViewResult<()> {
+    fn repaint(&mut self, cursor: usize, scroll: usize) {
         if scroll != self.yscroll {
             // If the scroll position has changed, then we need to queue up
             // a full redraw of the whole screen.
-            self.draw()?;
+            self.draw();
         } else if cursor != self.ycursor {
             // Otherwise, we only need to handle the lines near the cursor
             let mut out = std::io::stdout();
@@ -182,15 +180,14 @@ impl View<'_> {
                 queue!(&mut out,
                     cursor::MoveTo(0, sy),
                     Clear(ClearType::CurrentLine),
-                )?;
-                self.draw_line(&mut out, *i)?;
+                ).expect("Could not queue cursor move");
+                self.draw_line(&mut out, *i);
             }
-            out.flush()?;
+            out.flush().expect("Failed to flush stdout");
         }
-        Ok(())
     }
 
-    fn down(&mut self) -> ViewResult<()> {
+    fn down(&mut self) {
         let prev_cursor = self.ycursor;
         let prev_scroll = self.yscroll;
         self.ycursor = self.increment_index(self.ycursor);
@@ -200,14 +197,14 @@ impl View<'_> {
         if self.ycursor >= self.yscroll + self.size.1 as usize {
             self.yscroll = self.increment_index(self.yscroll);
         }
-        self.repaint(prev_cursor, prev_scroll)
+        self.repaint(prev_cursor, prev_scroll);
     }
 
     fn decrement_index(&self, index: usize) -> usize {
         index.saturating_sub(1)
     }
 
-    fn up(&mut self) -> ViewResult<()> {
+    fn up(&mut self) {
         let prev_cursor = self.ycursor;
         let prev_scroll = self.yscroll;
         self.ycursor = self.decrement_index(self.ycursor);
@@ -217,48 +214,46 @@ impl View<'_> {
         self.repaint(prev_cursor, prev_scroll)
     }
 
-    pub fn run(&mut self) -> ViewResult<Command> {
+    pub fn run(&mut self) -> Command {
         loop {
-            let evt = read()?;
-            let cmd = self.event(evt)?;
+            let evt = read().expect("Could not read event");
+            let cmd = self.event(evt);
             if cmd != Command::Continue {
-                return Ok(cmd);
+                return cmd;
             }
         }
     }
 
-    pub fn set_cmd_error(&mut self, err: &str) -> ViewResult<()> {
+    pub fn set_cmd_error(&mut self, err: &str) {
         let mut out = std::io::stdout();
         execute!(&mut out,
             cursor::MoveTo(0, self.size.1 + 1),
             Clear(ClearType::CurrentLine),
             PrintStyledContent(style(err).with(Color::DarkRed)),
-        )?;
+        ).expect("Failed to queue cmd error");
         self.has_cmd_error = true;
-        Ok(())
     }
 
-    fn clear_cmd(&mut self) -> ViewResult<()> {
+    fn clear_cmd(&mut self) {
         let mut out = std::io::stdout();
         execute!(&mut out,
             cursor::MoveTo(0, self.size.1 + 1),
             Clear(ClearType::CurrentLine),
-        )?;
+        ).expect("Failed to queue cmd clear");
         self.has_cmd_error = false;
-        Ok(())
     }
 
-    fn key(&mut self, k: KeyEvent) -> ViewResult<Command> {
+    fn key(&mut self, k: KeyEvent) -> Command {
         // Exit on Ctrl-C, even though we don't get a true SIGINT
         if k.code == KeyCode::Char('c') &&
            k.modifiers == KeyModifiers::CONTROL
         {
-            return Ok(Command::Exit);
+            return Command::Exit;
         }
 
         // Clear the command error pane on any keypress
         if self.has_cmd_error {
-            self.clear_cmd()?;
+            self.clear_cmd();
         }
 
 
@@ -266,47 +261,47 @@ impl View<'_> {
         // TODO: multiple up/down commands, e.g. 10j
 
         match k.code {
-            KeyCode::Char('j') => self.down()?,
-            KeyCode::Char('k') => self.up()?,
+            KeyCode::Char('j') => self.down(),
+            KeyCode::Char('k') => self.up(),
             KeyCode::Char(':') => {
                 execute!(&mut std::io::stdout(),
                     cursor::MoveTo(0, self.size.1 + 1),
                     Print(":"),
-                )?;
+                ).expect("Could not start drawing command line");
                 if let Some(cmd) = Input::new().run() {
-                    return Ok(Command::parse(cmd));
+                    return Command::parse(cmd);
                 } else {
-                    self.clear_cmd()?;
-                    return Ok(Command::Continue);
+                    self.clear_cmd();
+                    return Command::Continue;
                 }
             },
             KeyCode::Enter => {
                 match self.doc.0[self.ycursor] {
                     Line_::NamedLink { url, .. } |
                     Line_::BareLink(url) =>
-                        return Ok(Command::TryLoad(url.to_string())),
+                        return Command::TryLoad(url.to_string()),
                     _ => (),
                 }
             },
             _ => (),
         }
-        Ok(Command::Continue)
+        Command::Continue
     }
 
-    fn event(&mut self, evt: Event) -> ViewResult<Command> {
+    fn event(&mut self, evt: Event) -> Command {
         match evt {
             Event::Key(event) => return self.key(event),
             Event::Mouse(event) => {
                 match event {
-                    MouseEvent::ScrollUp(..) => self.up()?,
-                    MouseEvent::ScrollDown(..) => self.down()?,
+                    MouseEvent::ScrollUp(..) => self.up(),
+                    MouseEvent::ScrollDown(..) => self.down(),
                     _ => (),
                 }
             },
             Event::Resize(w, h) => {
-                self.resize((w, h))?;
+                self.resize((w, h));
             },
         }
-        Ok(Command::Continue)
+        Command::Continue
     }
 }

@@ -131,15 +131,15 @@ impl App {
     }
 
     fn display_doc(&self, doc: &Document) -> Result<Command> {
-        let mut v = View::new(doc)?;
+        let mut v = View::new(doc);
         loop {
-            match v.run()? {
+            match v.run() {
                 Command::Continue => continue,
                 Command::Unknown(cmd) => {
-                    v.set_cmd_error(&format!("Unknown command: {}", cmd))?;
+                    v.set_cmd_error(&format!("Unknown command: {}", cmd));
                 },
                 Command::Error(err) => {
-                    v.set_cmd_error(&format!("Error: {}", err))?;
+                    v.set_cmd_error(&format!("Error: {}", err));
                 },
                 r => return Ok(r),
             }
