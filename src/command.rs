@@ -10,6 +10,7 @@ pub enum Command {
 impl Command {
     pub fn parse(cmd: String) -> Result<Command> {
         // TODO: use nom here as well
+        // TODO: add commands to set colors
         let mut itr = cmd.split_whitespace();
         if let Some(c) = itr.next() {
             match c {
