@@ -3,7 +3,7 @@ use std::io::{Write};
 
 use crate::document::{Document, WrappedDocument};
 use crate::input::Input;
-use crate::protocol::{ResponseHeader, Line_};
+use crate::protocol::Line_;
 use crate::command::Command;
 
 use anyhow::Result;

@@ -8,8 +8,8 @@ use crate::tofu::GeminiCertificateVerifier;
 use crate::command::Command;
 use crate::document::Document;
 use crate::input;
-use crate::parser::{parse_response_header, parse_text_gemini};
-use crate::protocol::{Line, ResponseHeader, ResponseStatus};
+use crate::parser::{parse_response, parse_text_gemini};
+use crate::protocol::{Line, ResponseStatus};
 use crate::view::View;
 
 pub struct App {
@@ -84,14 +84,12 @@ impl App {
         }
 
         let plaintext = self.read(&url)?;
-
-        let (body, header) = parse_response_header(&plaintext)
-            .map_err(|e| anyhow!("Header parsing failed: {}", e))?;
+        let response = parse_response(&plaintext)?;
 
         use ResponseStatus::*;
-        match header.status {
+        match response.status {
             RedirectTemporary | RedirectPermanent => {
-                let next = url::Url::parse(header.meta)?;
+                let next = url::Url::parse(response.meta)?;
                 self.fetch_(next, depth + 1)
             },
 
@@ -112,18 +110,18 @@ impl App {
             // Only read the response body if we got a Success response status
             Success => {
                 // TODO: cb.header(&header)?;
-                if header.meta.starts_with("text/gemini") {
-                    let body = std::str::from_utf8(body)?;
+                if response.meta.starts_with("text/gemini") {
+                    let body = std::str::from_utf8(response.body)?;
                     let (_, doc) = parse_text_gemini(body).map_err(
                         |e| anyhow!("text/gemini parsing failed: {}", e))?;
                     self.display_doc(&doc)
-                } else if header.meta.starts_with("text/") {
+                } else if response.meta.starts_with("text/") {
                     // Read other text/ MIME types as a single preformatted line
-                    let body = std::str::from_utf8(body)?;
+                    let body = std::str::from_utf8(response.body)?;
                     let text = Line::Pre { alt: None, text: body };
                     self.display_doc(&Document::new(vec![text]))
                 } else {
-                    Err(anyhow!("Unknown meta: {}", header.meta))
+                    Err(anyhow!("Unknown meta: {}", response.meta))
                 }
             },
 

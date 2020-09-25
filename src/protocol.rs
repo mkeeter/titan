@@ -51,10 +51,13 @@ impl TryFrom<u32> for ResponseStatus {
     }
 }
 
+pub type ResponseHeader<'a> = (ResponseStatus, &'a str);
+
 #[derive(Debug)]
-pub struct ResponseHeader<'a> {
+pub struct Response<'a> {
     pub status: ResponseStatus,
     pub meta: &'a str,
+    pub body: &'a [u8],
 }
 
 #[derive(Debug, Eq, PartialEq)]

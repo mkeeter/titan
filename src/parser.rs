@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use crate::document::Document;
 
@@ -14,7 +14,7 @@ use nom::{
     sequence::{terminated, tuple},
 };
 
-use crate::protocol::{ResponseStatus, ResponseHeader, Line};
+use crate::protocol::{ResponseStatus, ResponseHeader, Response, Line};
 
 fn parse_response_status(i: &[u8]) -> Result<ResponseStatus> {
     let s = std::str::from_utf8(i)?;
@@ -33,7 +33,13 @@ pub fn parse_response_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {
             std::str::from_utf8)
     ))(input)?;
 
-    Ok((input, ResponseHeader { status, meta }))
+    Ok((input, (status, meta)))
+}
+
+pub fn parse_response(input: &[u8]) -> Result<Response> {
+    let (body, (status, meta)) = parse_response_header(input)
+        .map_err(|e| anyhow!("Parse error: {}", e))?;
+    Ok(Response { status, meta, body })
 }
 
 ////////////////////////////////////////////////////////////////////////////////
