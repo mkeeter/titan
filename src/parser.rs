@@ -16,6 +16,9 @@ use nom::{
 
 use crate::protocol::{ResponseStatus, ResponseHeader, Response, Line};
 
+// Temporary tuple type, to make nom's type-inference happy
+type ResponseHeader<'a> = (ResponseStatus, &'a str);
+
 fn parse_response_status(i: &[u8]) -> Result<ResponseStatus> {
     let s = std::str::from_utf8(i)?;
     ResponseStatus::try_from(u32::from_str_radix(s, 10)?)

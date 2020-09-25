@@ -51,8 +51,6 @@ impl TryFrom<u32> for ResponseStatus {
     }
 }
 
-pub type ResponseHeader<'a> = (ResponseStatus, &'a str);
-
 #[derive(Debug)]
 pub struct Response<'a> {
     pub status: ResponseStatus,
