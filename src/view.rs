@@ -6,6 +6,8 @@ use crate::input::Input;
 use crate::protocol::{ResponseHeader, Line_};
 use crate::command::Command;
 
+use anyhow::Result;
+
 use crossterm::{
     cursor,
     execute,
@@ -214,12 +216,12 @@ impl View<'_> {
         self.repaint(prev_cursor, prev_scroll)
     }
 
-    pub fn run(&mut self) -> Command {
+    pub fn run(&mut self) -> Result<Command> {
         loop {
             let evt = read().expect("Could not read event");
-            let cmd = self.event(evt);
+            let cmd = self.event(evt)?;
             if cmd != Command::Continue {
-                return cmd;
+                return Ok(cmd);
             }
         }
     }
@@ -243,12 +245,12 @@ impl View<'_> {
         self.has_cmd_error = false;
     }
 
-    fn key(&mut self, k: KeyEvent) -> Command {
+    fn key(&mut self, k: KeyEvent) -> Result<Command> {
         // Exit on Ctrl-C, even though we don't get a true SIGINT
         if k.code == KeyCode::Char('c') &&
            k.modifiers == KeyModifiers::CONTROL
         {
-            return Command::Exit;
+            return Ok(Command::Exit);
         }
 
         // Clear the command error pane on any keypress
@@ -272,23 +274,23 @@ impl View<'_> {
                     return Command::parse(cmd);
                 } else {
                     self.clear_cmd();
-                    return Command::Continue;
+                    return Ok(Command::Continue);
                 }
             },
             KeyCode::Enter => {
                 match self.doc.0[self.ycursor] {
                     Line_::NamedLink { url, .. } |
                     Line_::BareLink(url) =>
-                        return Command::TryLoad(url.to_string()),
+                        return Ok(Command::TryLoad(url.to_string())),
                     _ => (),
                 }
             },
             _ => (),
         }
-        Command::Continue
+        Ok(Command::Continue)
     }
 
-    fn event(&mut self, evt: Event) -> Command {
+    fn event(&mut self, evt: Event) -> Result<Command> {
         match evt {
             Event::Key(event) => return self.key(event),
             Event::Mouse(event) => {
@@ -302,6 +304,6 @@ impl View<'_> {
                 self.resize((w, h));
             },
         }
-        Command::Continue
+        Ok(Command::Continue)
     }
 }

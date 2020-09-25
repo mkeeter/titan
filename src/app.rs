@@ -42,8 +42,7 @@ impl App {
                         Ok(url) => target = url,
                     }
                 },
-                Command::Continue | Command::Unknown(_) | Command::Error(_) =>
-                    unreachable!(),
+                Command::Continue => unreachable!(),
             }
         }
     }
@@ -104,7 +103,7 @@ impl App {
                     url.set_query(Some(&input));
                     self.fetch_(url, depth + 1)
                 } else {
-                    Ok(Command::Error("Failed to get input".to_string()))
+                    Err(anyhow!("Failed to get input"))
                 }
             },
             // Only read the response body if we got a Success response status
@@ -134,14 +133,11 @@ impl App {
         let mut v = View::new(doc);
         loop {
             match v.run() {
-                Command::Continue => continue,
-                Command::Unknown(cmd) => {
-                    v.set_cmd_error(&format!("Unknown command: {}", cmd));
+                Ok(cmd) => match cmd {
+                    Command::Continue => continue,
+                    r => return Ok(r),
                 },
-                Command::Error(err) => {
-                    v.set_cmd_error(&format!("Error: {}", err));
-                },
-                r => return Ok(r),
+                Err(err) => v.set_cmd_error(&format!("{}", err)),
             }
         }
     }
