@@ -22,7 +22,7 @@ impl Command {
                     }
                     match url {
                         Ok(url) => Ok(Command::Load(url)),
-                        Err(e) => Err(anyhow!("Invalid URL {}", t)),
+                        Err(e) => Err(anyhow!("Invalid URL {}: {}", t, e)),
                     }
                 } else {
                     Err(anyhow!("Missing URL"))

@@ -2,18 +2,17 @@ use std::convert::TryInto;
 use std::io::{Write};
 
 use crate::document::{Document, WrappedDocument};
-use crate::input::Input;
-use crate::protocol::Line_;
+use crate::protocol::Line;
 use crate::command::Command;
 
 use anyhow::Result;
 
 use crossterm::{
     cursor,
+    event,
     execute,
     terminal,
-    event,
-    event::{read, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
+    event::{Event, KeyCode, KeyEvent, MouseEvent},
     terminal::{Clear, ClearType},
     style::{style, Color, ContentStyle, Print, PrintStyledContent},
     queue,
@@ -27,8 +26,6 @@ pub struct View<'a> {
 
     yscroll: usize, // Y scoll position in the doc
     ycursor: usize, // Y cursor position in the doc
-
-    has_cmd_error: bool,
 }
 
 impl Drop for View<'_> {
@@ -48,23 +45,18 @@ impl View<'_> {
         let size = terminal::size()
             .expect("Could not get terminal size");
 
-        // Add two characters of padding on either side
-        let tw = size.0 - 4;
-        let doc = source.word_wrap((size.0 - 4).into());
+        let doc = source.dummy_wrap();
 
-        // Add a status and command bar at the bottom
-        let th = size.1 - 2;
-
-        let v = View { doc, source,
+        let mut v = View { doc, source,
             ycursor: 0,
             yscroll: 0,
-            size: (tw, th),
-            has_cmd_error: false,
+            size: (0, 0),
         };
         terminal::enable_raw_mode()
             .expect("Could not enable raw mode");
         execute!(std::io::stdout(), cursor::Hide, event::EnableMouseCapture)
             .expect("Could not hide cursor");
+        v.resize(size);
         v.draw();
         v
     }
@@ -76,6 +68,10 @@ impl View<'_> {
         let ycursor_frac = self.ycursor as f32 / self.doc.0.len() as f32;
 
         self.doc = self.source.word_wrap((size.0 - 4).into());
+
+        // Add two characters of padding on either side, and a status
+        // and command bar at the bottom
+        // Add a status and command bar at the bottom
         self.size = (size.0 - 4, size.1 - 2);
 
         let dl = self.doc.0.len();
@@ -89,34 +85,30 @@ impl View<'_> {
         self.draw()
     }
 
-    // Calculates the text and prefix for a given line, which is given as its
-    // text and a boolean indicating whether it's the first in its block.
-    fn prefix<'a>(p: (&'a str, bool), first: &'static str, later: &'static str)
-        -> (&'a str, &'static str)
-    {
-        (p.0, if p.1 { first } else { later })
-    }
-
     fn draw_line<W: Write>(&self, out: &mut W, i: usize) {
         // We trust that the line-wrapping has wrapped things like quotes and
         // links so that there's room for their prefixes here.
-        let p = Self::prefix;
 
-        use Line_::*;
+        use Line::*;
         let c = ContentStyle::new();
-        let ((text, prefix), c) = match self.doc.0[i] {
-            Text(t) => ((t.0, ""), c),
-            H1(t) => (p(t, "# ", "  "), c.foreground(Color::DarkRed)),
-            H2(t) => (p(t, "## ", "   "), c.foreground(Color::DarkYellow)),
-            H3(t) => (p(t, "### ", "    "), c.foreground(Color::DarkCyan)),
-            List(t) => (p(t, "• ", "  "), c),
-            Quote(t) => ((t.0, "> "), c.foreground(Color::White)),
-            NamedLink { name, .. } => (p(name, "→ ", "  "),
+        let (line, first) = self.doc.0[i];
+
+        // Prefix selector function
+        let p = |a, b| if first { a } else { b };
+
+        let (text, prefix, c) = match line {
+            Text(t) => (t, "", c),
+            H1(t) => (t, p("# ", "  "), c.foreground(Color::DarkRed)),
+            H2(t) => (t, p("## ", "   "), c.foreground(Color::DarkYellow)),
+            H3(t) => (t, p("### ", "    "), c.foreground(Color::DarkCyan)),
+            List(t) => (t, p("• ", "  "), c),
+            Quote(t) => (t, "> ", c.foreground(Color::White)),
+            NamedLink { name, .. } => (name, p("→ ", "  "),
                                        c.foreground(Color::Magenta)),
 
             // TODO: handle overly long Pre and BareLink lines
-            BareLink(url) => ((url, "→ "), c.foreground(Color::Magenta)),
-            Pre { text, .. } => ((text.0, ""), c.foreground(Color::Red)),
+            BareLink(url) => (url, "→ ", c.foreground(Color::Magenta)),
+            Pre { text, .. } => (text, "", c.foreground(Color::Red)),
         };
 
         let sy = (i - self.yscroll).try_into().unwrap();
@@ -216,70 +208,14 @@ impl View<'_> {
         self.repaint(prev_cursor, prev_scroll)
     }
 
-    pub fn run(&mut self) -> Result<Command> {
-        loop {
-            let evt = read().expect("Could not read event");
-            if let Some(cmd) = self.event(evt) {
-                return cmd;
-            }
-        }
-    }
-
-    pub fn set_cmd_error(&mut self, err: &str) {
-        let mut out = std::io::stdout();
-        execute!(&mut out,
-            cursor::MoveTo(0, self.size.1 + 1),
-            Clear(ClearType::CurrentLine),
-            PrintStyledContent(style(err).with(Color::DarkRed)),
-        ).expect("Failed to queue cmd error");
-        self.has_cmd_error = true;
-    }
-
-    fn clear_cmd(&mut self) {
-        let mut out = std::io::stdout();
-        execute!(&mut out,
-            cursor::MoveTo(0, self.size.1 + 1),
-            Clear(ClearType::CurrentLine),
-        ).expect("Failed to queue cmd clear");
-        self.has_cmd_error = false;
-    }
-
     fn key(&mut self, k: KeyEvent) -> Option<Result<Command>> {
-        // Exit on Ctrl-C, even though we don't get a true SIGINT
-        if k.code == KeyCode::Char('c') &&
-           k.modifiers == KeyModifiers::CONTROL
-        {
-            return Some(Ok(Command::Exit));
-        }
-
-        // Clear the command error pane on any keypress
-        if self.has_cmd_error {
-            self.clear_cmd();
-        }
-
-
-        // TODO: search mode with '/'
-        // TODO: multiple up/down commands, e.g. 10j
-
         match k.code {
             KeyCode::Char('j') => { self.down(); None }
             KeyCode::Char('k') => { self.up(); None }
-            KeyCode::Char(':') => {
-                execute!(&mut std::io::stdout(),
-                    cursor::MoveTo(0, self.size.1 + 1),
-                    Print(":"),
-                ).expect("Could not start drawing command line");
-                if let Some(cmd) = Input::new().run() {
-                    Some(Command::parse(cmd))
-                } else {
-                    self.clear_cmd();
-                    None
-                }
-            },
             KeyCode::Enter => {
-                match self.doc.0[self.ycursor] {
-                    Line_::NamedLink { url, .. } |
-                    Line_::BareLink(url) =>
+                match self.doc.0[self.ycursor].0 {
+                    Line::NamedLink { url, .. } |
+                    Line::BareLink(url) =>
                         Some(Ok(Command::TryLoad(url.to_string()))),
                     _ => None
                 }
@@ -288,7 +224,7 @@ impl View<'_> {
         }
     }
 
-    fn event(&mut self, evt: Event) -> Option<Result<Command>> {
+    pub fn event(&mut self, evt: Event) -> Option<Result<Command>> {
         match evt {
             Event::Key(event) => self.key(event),
             Event::Mouse(event) => {

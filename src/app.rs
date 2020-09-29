@@ -12,8 +12,19 @@ use crate::parser::{parse_response, parse_text_gemini};
 use crate::protocol::{Line, ResponseStatus};
 use crate::view::View;
 
+use crossterm::{
+    cursor,
+    execute,
+    terminal,
+    event::{read, Event, KeyCode, KeyEvent, KeyModifiers},
+    terminal::{Clear, ClearType},
+    style::{style, Color, Print, PrintStyledContent},
+};
+
 pub struct App {
     config: Arc<rustls::ClientConfig>,
+    has_cmd_error: bool,
+    size: (u16, u16), // width, height
 }
 
 impl App {
@@ -22,12 +33,14 @@ impl App {
         let verifier = GeminiCertificateVerifier::new(&db)?;
         config.dangerous().set_certificate_verifier(Arc::new(verifier));
         let config = Arc::new(config);
-        Ok(App { config })
+        let size = terminal::size()
+            .expect("Could not get terminal size");
+        Ok(App { config, has_cmd_error: false, size })
     }
 
-    pub fn run(&self, mut target: url::Url) -> Result<()> {
+    pub fn run(&mut self, mut target: url::Url) -> Result<()> {
         loop {
-            // TODO: don't use a reference here?
+            // TODO: don't use a clone here?
             match self.fetch(target.clone())? {
                 Command::Exit => break Ok(()),
                 Command::Load(s) => target = s,
@@ -74,11 +87,11 @@ impl App {
         Ok(plaintext)
     }
 
-    pub fn fetch(&self, url: url::Url) -> Result<Command> {
+    pub fn fetch(&mut self, url: url::Url) -> Result<Command> {
         self.fetch_(url, 0)
     }
 
-    fn fetch_(&self, url: url::Url, depth: u8) -> Result<Command> {
+    fn fetch_(&mut self, url: url::Url, depth: u8) -> Result<Command> {
         if depth >= 5 {
             return Err(anyhow!("Too much recursion"));
         }
@@ -130,12 +143,92 @@ impl App {
         }
     }
 
-    fn display_doc(&self, doc: &Document) -> Result<Command> {
+    fn key(&mut self, k: KeyEvent) -> Option<Result<Command>> {
+        // Exit on Ctrl-C, even though we don't get a true SIGINT
+        if k.code == KeyCode::Char('c') &&
+           k.modifiers == KeyModifiers::CONTROL
+        {
+            return Some(Ok(Command::Exit));
+        }
+
+        // Clear the command error pane on any keypress
+        if self.has_cmd_error {
+            self.clear_cmd();
+        }
+
+        // TODO: search mode with '/'
+        // TODO: multiple up/down commands, e.g. 10j
+
+        match k.code {
+            KeyCode::Char(':') => {
+                execute!(&mut std::io::stdout(),
+                    cursor::MoveTo(0, self.size.1 + 1),
+                    Print(":"),
+                ).expect("Could not start drawing command line");
+                if let Some(cmd) = input::Input::new().run() {
+                    Some(Command::parse(cmd))
+                } else {
+                    self.clear_cmd();
+                    None
+                }
+            },
+            _ => None,
+        }
+    }
+
+    fn set_cmd_error(&mut self, err: &str) {
+        let mut out = std::io::stdout();
+        execute!(&mut out,
+            cursor::MoveTo(0, self.size.1 + 1),
+            Clear(ClearType::CurrentLine),
+            PrintStyledContent(style(err).with(Color::DarkRed)),
+        ).expect("Failed to queue cmd error");
+        self.has_cmd_error = true;
+    }
+
+    fn clear_cmd(&mut self) {
+        let mut out = std::io::stdout();
+        execute!(&mut out,
+            cursor::MoveTo(0, self.size.1 + 1),
+            Clear(ClearType::CurrentLine),
+        ).expect("Failed to queue cmd clear");
+        self.has_cmd_error = false;
+    }
+
+    fn event(&mut self, evt: Event) -> Option<Result<Command>> {
+        match evt {
+            Event::Key(event) => self.key(event),
+            Event::Resize(w, h) => {
+                self.resize((w, h));
+                None
+            },
+            _ => None,
+        }
+    }
+
+    fn resize(&mut self, size: (u16, u16)) {
+        self.size = size;
+    }
+
+    fn display_doc(&mut self, doc: &Document) -> Result<Command> {
         let mut v = View::new(doc);
         loop {
-            match v.run() {
-                Ok(cmd) => return Ok(cmd),
-                Err(err) => v.set_cmd_error(&format!("{}", err)),
+            let evt = read().expect("Could not read event");
+
+            // Handle some events ourselves, before possibly
+            // passing them to the document view
+            // TODO: chain with unwrap_or_else
+            if let Some(r) = self.event(evt) {
+                match r {
+                    Ok(cmd) => return Ok(cmd),
+                    Err(err) => self.set_cmd_error(&format!("{}", err)),
+                }
+            }
+            if let Some(r) = v.event(evt) {
+                match r {
+                    Ok(cmd) => return Ok(cmd),
+                    Err(err) => self.set_cmd_error(&format!("{}", err)),
+                }
             }
         }
     }

@@ -58,17 +58,15 @@ pub struct Response<'a> {
     pub body: &'a [u8],
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Line_<'a, T> {
-    Text(T),
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Line<'a> {
+    Text(&'a str),
     BareLink(&'a str),
-    NamedLink { url: &'a str, name: T },
-    Pre { alt: Option<&'a str>, text: T },
-    H1(T),
-    H2(T),
-    H3(T),
-    List(T),
-    Quote(T),
+    NamedLink { url: &'a str, name: &'a str },
+    Pre { alt: Option<&'a str>, text: &'a str },
+    H1(&'a str),
+    H2(&'a str),
+    H3(&'a str),
+    List(&'a str),
+    Quote(&'a str),
 }
-
-pub type Line<'a> = Line_<'a, &'a str>;
