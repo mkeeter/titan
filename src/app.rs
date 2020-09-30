@@ -122,7 +122,7 @@ impl App {
             },
             // Only read the response body if we got a Success response status
             Success => {
-                // TODO: cb.header(&header)?;
+                // TODO: Figure out how to draw the header
                 if response.meta.starts_with("text/gemini") {
                     let body = std::str::from_utf8(response.body)?;
                     let (_, doc) = parse_text_gemini(body).map_err(
