@@ -217,17 +217,10 @@ impl App {
 
             // Handle some events ourselves, before possibly
             // passing them to the document view
-            // TODO: chain with unwrap_or_else
-            if let Some(r) = self.event(evt) {
+            if let Some(r) = self.event(evt).or_else(|| v.event(evt)) {
                 match r {
-                    Ok(cmd) => return Ok(cmd),
                     Err(err) => self.set_cmd_error(&format!("{}", err)),
-                }
-            }
-            if let Some(r) = v.event(evt) {
-                match r {
-                    Ok(cmd) => return Ok(cmd),
-                    Err(err) => self.set_cmd_error(&format!("{}", err)),
+                    r => break r,
                 }
             }
         }
