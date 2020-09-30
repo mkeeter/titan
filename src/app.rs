@@ -127,12 +127,12 @@ impl App {
                     let body = std::str::from_utf8(response.body)?;
                     let (_, doc) = parse_text_gemini(body).map_err(
                         |e| anyhow!("text/gemini parsing failed: {}", e))?;
-                    self.display_doc(&doc)
+                    Ok(self.display_doc(&doc))
                 } else if response.meta.starts_with("text/") {
                     // Read other text/ MIME types as a single preformatted line
                     let body = std::str::from_utf8(response.body)?;
                     let text = Line::Pre { alt: None, text: body };
-                    self.display_doc(&Document::new(vec![text]))
+                    Ok(self.display_doc(&Document::new(vec![text])))
                 } else {
                     Err(anyhow!("Unknown meta: {}", response.meta))
                 }
@@ -210,7 +210,7 @@ impl App {
         self.size = size;
     }
 
-    fn display_doc(&mut self, doc: &Document) -> Result<Command> {
+    fn display_doc(&mut self, doc: &Document) -> Command {
         let mut v = View::new(doc);
         loop {
             let evt = read().expect("Could not read event");
@@ -220,7 +220,7 @@ impl App {
             if let Some(r) = self.event(evt).or_else(|| v.event(evt)) {
                 match r {
                     Err(err) => self.set_cmd_error(&format!("{}", err)),
-                    r => break r,
+                    Ok(r) => break r,
                 }
             }
         }
