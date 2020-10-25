@@ -14,3 +14,11 @@ It takes inspiration from Vim, and is written in Rust.
 ## What doesn't work?
 - Good error handling: in most cases, it will exit on any error
 - TLS v1 certificate handling (uncommon, but seen in the wild on sites hosted with [`gmnisrv`](https://git.sr.ht/~sircmpwn/gmnisrv))
+
+## What else is missing?
+- Client certificate management
+- Forward / back browsing
+- Bookmarks
+- Configurability
+- Multiple windows or tabs
+- ...and so much more!
