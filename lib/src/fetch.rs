@@ -68,11 +68,20 @@ impl OwnedResponse {
 
 #[self_referencing]
 pub struct OwnedDocument {
-    data: OwnedResponse,
+    response: OwnedResponse,
 
-    #[borrows(data)]
+    #[borrows(response)]
     #[covariant]
     doc: Option<Document<'this>>
+}
+
+impl OwnedDocument {
+    fn status(&self) -> ResponseStatus {
+        self.borrow_response().status()
+    }
+    fn meta(&self) -> &str {
+        self.borrow_response().meta()
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
