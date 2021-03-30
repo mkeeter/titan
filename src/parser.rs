@@ -103,8 +103,8 @@ fn parse_pre(input: &str) -> IResult<&str, Line> {
     } else {
         Some(alt)
     };
-    let (input, text) = take_until("```")(input)?;
-    read_line(input)?;
+    let (input, text) = take_until("\n```\n")(input)?;
+    let (input, _) = tag("\n```\n")(input)?;
 
     Ok((input, Line::Pre { alt, text }))
 }
@@ -143,15 +143,16 @@ pub fn test_parse_text_gemini() {
 ```py
 for i in range(10):
     print(i)
-```").unwrap();
-    assert_eq!(r.1, Document(vec![
+```
+hi there").unwrap();
+    assert_eq!(r.1, Document::new(vec![
         Line::H1("h1"),
         Line::Quote("quote"),
         Line::H2("h2"),
         Line::Text(""),
-        Line::Pre { alt: Some("py"), text: vec![
-"for i in range(10):",
-"    print(i)"]},
+        Line::Pre { alt: Some("py"), text:
+            "for i in range(10):\n    print(i)"},
+        Line::Text("hi there"),
     ]));
 }
 
@@ -160,7 +161,7 @@ pub fn test_parse_line() {
     let r = parse_line("=> hello.com world").unwrap();
     assert_eq!(r.1, Line::NamedLink {
         url: "hello.com",
-        name: Some("world") });
+        name: "world" });
 
     let r = parse_line("=> hello.com ").unwrap();
     assert_eq!(r.1, Line::BareLink("hello.com"));
