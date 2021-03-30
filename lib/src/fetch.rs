@@ -76,10 +76,10 @@ pub struct OwnedDocument {
 }
 
 impl OwnedDocument {
-    fn status(&self) -> ResponseStatus {
+    pub fn status(&self) -> ResponseStatus {
         self.borrow_response().status()
     }
-    fn meta(&self) -> &str {
+    pub fn meta(&self) -> &str {
         self.borrow_response().meta()
     }
 }
