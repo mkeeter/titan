@@ -1,12 +1,12 @@
 use std::sync::{RwLock};
-use anyhow::Result;
+use crate::Error;
 
 pub struct GeminiCertificateVerifier {
     db: RwLock<sled::Tree>
 }
 
 impl GeminiCertificateVerifier {
-    pub fn new(root: &sled::Db) -> Result<GeminiCertificateVerifier> {
+    pub fn new(root: &sled::Db) -> Result<GeminiCertificateVerifier, Error> {
         let db = RwLock::new(root.open_tree("certs")?);
         Ok(Self { db })
     }

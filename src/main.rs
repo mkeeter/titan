@@ -2,12 +2,9 @@ use anyhow::Result;
 
 mod app;
 mod command;
-mod document;
 mod input;
-mod protocol;
-mod parser;
-mod tofu;
 mod view;
+mod wrapped;
 
 use crate::app::App;
 

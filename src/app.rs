@@ -1,15 +1,16 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use std::sync::{Arc};
-use std::net::TcpStream;
 
 use anyhow::{anyhow, Result};
 
-use crate::tofu::GeminiCertificateVerifier;
+use silo::tofu::GeminiCertificateVerifier;
+use silo::fetch;
+use silo::parser::{parse_response, parse_text_gemini};
+use silo::protocol::{Line, ResponseStatus};
+
 use crate::command::Command;
-use crate::document::Document;
+use silo::document::Document;
 use crate::input;
-use crate::parser::{parse_response, parse_text_gemini};
-use crate::protocol::{Line, ResponseStatus};
 use crate::view::View;
 
 use crossterm::{
@@ -59,34 +60,6 @@ impl App {
         }
     }
 
-    fn read(&self, url: &url::Url) -> Result<Vec<u8>> {
-        if url.scheme() != "gemini" {
-            return Err(anyhow!("Invalid URL scheme: {}", url.scheme()));
-        }
-        let hostname = url.host_str()
-            .ok_or_else(|| anyhow!("Error: no hostname in {}", url.as_str()))?;
-        let dns_name = webpki::DNSNameRef::try_from_ascii_str(hostname)?;
-        let mut sess = rustls::ClientSession::new(&self.config, dns_name);
-
-        let port = url.port().unwrap_or(1965);
-        let mut sock = TcpStream::connect(format!("{}:{}", hostname, port))?;
-        let mut tls = rustls::Stream::new(&mut sess, &mut sock);
-
-        tls.write_all(format!("{}\r\n", url.as_str()).as_bytes())?;
-
-        let mut plaintext = Vec::new();
-        let rc = tls.read_to_end(&mut plaintext);
-
-        // The server should cleanly close the connection at the end of the
-        // message, which returns an error from read_to_end but is actually okay.
-        if let Err(err) = rc {
-            if err.kind() != std::io::ErrorKind::ConnectionAborted {
-                return Err(err.into());
-            }
-        }
-        Ok(plaintext)
-    }
-
     pub fn fetch(&mut self, url: url::Url) -> Result<Command> {
         self.fetch_(url, 0)
     }
@@ -96,7 +69,7 @@ impl App {
             return Err(anyhow!("Too much recursion"));
         }
 
-        let plaintext = self.read(&url)?;
+        let plaintext = fetch::read(&self.config, &url)?;
         let response = parse_response(&plaintext)?;
 
         use ResponseStatus::*;
@@ -132,7 +105,7 @@ impl App {
                     // Read other text/ MIME types as a single preformatted line
                     let body = std::str::from_utf8(response.body)?;
                     let text = Line::Pre { alt: None, text: body };
-                    Ok(self.display_doc(&Document::new(vec![text])))
+                    Ok(self.display_doc(&Document(vec![text])))
                 } else {
                     Err(anyhow!("Unknown meta: {}", response.meta))
                 }

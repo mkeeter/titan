@@ -1,8 +1,10 @@
 use std::convert::TryInto;
 use std::io::{Write};
 
-use crate::document::{Document, WrappedDocument};
-use crate::protocol::Line;
+use silo::document::Document;
+use silo::protocol::Line;
+
+use crate::wrapped::WrappedDocument;
 use crate::command::Command;
 
 use anyhow::Result;
@@ -45,7 +47,7 @@ impl View<'_> {
         let size = terminal::size()
             .expect("Could not get terminal size");
 
-        let doc = source.dummy_wrap();
+        let doc = crate::wrapped::dummy_wrap(source);
 
         let mut v = View { doc, source,
             ycursor: 0,
@@ -67,7 +69,7 @@ impl View<'_> {
         let yscroll_frac = self.yscroll as f32 / self.doc.0.len() as f32;
         let ycursor_frac = self.ycursor as f32 / self.doc.0.len() as f32;
 
-        self.doc = self.source.word_wrap((size.0 - 4).into());
+        self.doc = crate::wrapped::word_wrap(self.source, (size.0 - 4).into());
 
         // Add two characters of padding on either side, and a status
         // and command bar at the bottom

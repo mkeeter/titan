@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
-use anyhow::{Error, anyhow};
+use crate::Error;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ResponseStatus {
     Input,
     SensitiveInput,
@@ -46,7 +46,7 @@ impl TryFrom<u32> for ResponseStatus {
             60 => ClientCertificateRequired,
             61 => CertificateNotAuthorized,
             62 => CertificateNotValid,
-            _ => return Err(anyhow!("Invalid status code {}", v)),
+            _ => return Err(Error::InvalidStatusCode(v)),
         })
     }
 }

@@ -1,8 +1,7 @@
 use std::convert::TryFrom;
 
-use anyhow::{anyhow, Result};
-
 use crate::document::Document;
+use crate::Error;
 
 use nom::{
     IResult,
@@ -19,9 +18,12 @@ use crate::protocol::{ResponseStatus, Response, Line};
 // Temporary tuple type, to make nom's type-inference happy
 type ResponseHeader<'a> = (ResponseStatus, &'a str);
 
-fn parse_response_status(i: &[u8]) -> Result<ResponseStatus> {
-    let s = std::str::from_utf8(i)?;
-    ResponseStatus::try_from(u32::from_str_radix(s, 10)?)
+fn parse_response_status(i: &[u8]) -> Result<ResponseStatus, Error> {
+    let s = std::str::from_utf8(i)
+        .expect("Could not convert to utf8");
+    let n = u32::from_str_radix(s, 10)
+        .expect("Could not get u32");
+    ResponseStatus::try_from(n)
 }
 
 pub fn parse_response_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {
@@ -39,9 +41,9 @@ pub fn parse_response_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {
     Ok((input, (status, meta)))
 }
 
-pub fn parse_response(input: &[u8]) -> Result<Response> {
+pub fn parse_response(input: &[u8]) -> Result<Response, Error> {
     let (body, (status, meta)) = parse_response_header(input)
-        .map_err(|e| anyhow!("Parse error: {}", e))?;
+        .map_err(|_| Error::ParseError)?;
     Ok(Response { status, meta, body })
 }
 
@@ -131,7 +133,7 @@ pub fn parse_text_gemini(mut input: &str) -> IResult<&str, Document> {
         out.push(parsed);
     }
 
-    Ok((input, Document::new(out)))
+    Ok((input, Document(out)))
 }
 
 #[test]
