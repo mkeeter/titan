@@ -18,19 +18,17 @@ use crate::protocol::{Status, Response, Line};
 // Temporary tuple type, to make nom's type-inference happy
 type ResponseHeader<'a> = (Status, &'a str);
 
-fn parse_response_status(i: &[u8]) -> Result<Status, Error> {
-    let s = std::str::from_utf8(i)
-        .expect("Could not convert to utf8");
-    let n = u32::from_str_radix(s, 10)
-        .expect("Could not get u32");
-    Status::try_from(n)
-}
-
 pub fn parse_response_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {
     let (input, (status, _, meta)) = tuple((
         map_res(
             take_while_m_n(2, 2, is_digit),
-            parse_response_status),
+            |i| {
+                let s = std::str::from_utf8(i)
+                    .expect("Could not convert to utf8");
+                let n = u32::from_str_radix(s, 10)
+                    .expect("Could not get u32");
+                Status::try_from(n)
+            }),
         tag(" "),
         map_res(
             terminated(take_while_m_n(0, 1024, |c: u8| c != b'\r'),
