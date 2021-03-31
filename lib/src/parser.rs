@@ -13,17 +13,17 @@ use nom::{
     sequence::{terminated, tuple},
 };
 
-use crate::protocol::{ResponseStatus, Response, Line};
+use crate::protocol::{Status, Response, Line};
 
 // Temporary tuple type, to make nom's type-inference happy
-type ResponseHeader<'a> = (ResponseStatus, &'a str);
+type ResponseHeader<'a> = (Status, &'a str);
 
-fn parse_response_status(i: &[u8]) -> Result<ResponseStatus, Error> {
+fn parse_response_status(i: &[u8]) -> Result<Status, Error> {
     let s = std::str::from_utf8(i)
         .expect("Could not convert to utf8");
     let n = u32::from_str_radix(s, 10)
         .expect("Could not get u32");
-    ResponseStatus::try_from(n)
+    Status::try_from(n)
 }
 
 pub fn parse_response_header(input: &[u8]) -> IResult<&[u8], ResponseHeader> {

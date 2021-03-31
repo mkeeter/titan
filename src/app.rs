@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use silo::tofu::GeminiCertificateVerifier;
 use silo::fetch;
 use silo::parser::{parse_response, parse_text_gemini};
-use silo::protocol::{Line, ResponseStatus};
+use silo::protocol::{Line, Status};
 
 use crate::command::Command;
 use silo::document::Document;
@@ -72,7 +72,7 @@ impl App {
         let plaintext = fetch::read(&self.config, &url)?;
         let response = parse_response(&plaintext)?;
 
-        use ResponseStatus::*;
+        use Status::*;
         match response.status {
             RedirectTemporary | RedirectPermanent => {
                 let next = url::Url::parse(response.meta)?;

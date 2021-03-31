@@ -4,7 +4,7 @@ use std::net::TcpStream;
 
 use crate::Error;
 use crate::parser::{parse_response, parse_text_gemini};
-use crate::protocol::{Line, ResponseStatus, Response};
+use crate::protocol::{Line, Status, Response};
 use crate::document::Document;
 
 pub fn read(config: &Arc<rustls::ClientConfig>, url: &url::Url)
@@ -58,7 +58,7 @@ impl Deref for OwnedResponse {
 unsafe impl stable_deref_trait::StableDeref for OwnedResponse {} // marker
 
 impl OwnedResponse {
-    fn status(&self) -> ResponseStatus {
+    fn status(&self) -> Status {
         self.borrow_response().status
     }
     fn meta(&self) -> &str {
@@ -76,7 +76,7 @@ pub struct OwnedDocument {
 }
 
 impl OwnedDocument {
-    pub fn status(&self) -> ResponseStatus {
+    pub fn status(&self) -> Status {
         self.borrow_response().status()
     }
     pub fn meta(&self) -> &str {
@@ -102,7 +102,7 @@ fn fetch_(config: &Arc<rustls::ClientConfig>, url: url::Url, depth: u8)
     let plaintext = read(config, &url)?;
     let response = OwnedResponse::try_new(plaintext, |p| parse_response(p))?;
 
-    if response.status() == ResponseStatus::Success {
+    if response.status() == Status::Success {
         if response.meta().starts_with("text/gemini") {
             OwnedDocument::try_new(response,
                 |body| {

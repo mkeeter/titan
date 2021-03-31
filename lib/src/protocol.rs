@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use crate::Error;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ResponseStatus {
+pub enum Status {
     Input,
     SensitiveInput,
     Success,
@@ -23,10 +23,10 @@ pub enum ResponseStatus {
     CertificateNotValid,
 }
 
-impl TryFrom<u32> for ResponseStatus {
+impl TryFrom<u32> for Status {
     type Error = Error;
     fn try_from(v: u32) -> Result<Self, Self::Error> {
-        use ResponseStatus::*;
+        use Status::*;
         Ok(match v {
             10 => Input,
             11 => SensitiveInput,
@@ -53,7 +53,7 @@ impl TryFrom<u32> for ResponseStatus {
 
 #[derive(Debug)]
 pub struct Response<'a> {
-    pub status: ResponseStatus,
+    pub status: Status,
     pub meta: &'a str,
     pub body: &'a [u8],
 }
